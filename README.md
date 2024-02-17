@@ -1,7 +1,7 @@
 An Erlang Binding to FoundationDB
 ===
 
-[![CI](https://github.com/apache/couchdb-erlfdb/actions/workflows/ci.yml/badge.svg)](https://github.com/apache/couchdb-erlfdb/actions/workflows/ci.yml)[![Coverage](https://coveralls.io/repos/github/apache/couchdb-erlfdb/badge.svg?branch=main)](https://coveralls.io/github/apache/couchdb-erlfdb?branch=main)
+[![CI](https://github.com/foundationdb-beam/erlfdb/actions/workflows/ci.yml/badge.svg)](https://github.com/foundationdb-beam/erlfdb/actions/workflows/ci.yml)
 
 This project is a NIF wrapper for the FoundationDB C API. Documentation on
 the main API can be found [here][fdb_docs].
@@ -13,6 +13,7 @@ This project also provides a conforming implementation of the [Tuple] and
 [Tuple]: https://github.com/apple/foundationdb/blob/master/design/tuple.md
 [Directory]: https://apple.github.io/foundationdb/developer-guide.html#directories
 
+The original development of this project occurred as [apache/couchdb-erlfdb](https://github.com/apache/couchdb-erlfdb).
 
 Building
 ---
