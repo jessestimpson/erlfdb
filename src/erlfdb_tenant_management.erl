@@ -1,8 +1,12 @@
 -module(erlfdb_tenant_management).
 
--export([transactional/2, list_tenants/1, list_tenants/4, get_tenant/2, create_tenant/2, delete_tenant/2]).
+-export([
+    transactional/2, list_tenants/1, list_tenants/4, get_tenant/2, create_tenant/2, delete_tenant/2
+]).
 
--define(TENANT_MAP(TenantName), iolist_to_binary([<<16#FF, 16#FF, "/management/tenant/map/">>, TenantName])).
+-define(TENANT_MAP(TenantName),
+    iolist_to_binary([<<16#FF, 16#FF, "/management/tenant/map/">>, TenantName])
+).
 
 -define(IS_DB, {erlfdb_database, _}).
 -define(IS_TX, {erlfdb_transaction, _}).

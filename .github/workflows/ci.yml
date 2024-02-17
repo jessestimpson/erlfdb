@@ -9,6 +9,19 @@ permissions:
   contents: read
 
 jobs:
+  fmt:
+    runs-on: ubuntu-20.04
+    name: fmt / OTP ${{matrix.otp}}
+    strategy:
+      matrix:
+        otp: ['25']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{matrix.otp}}
+      - name: Checking code formatting
+        run: rebar3 fmt --check
   eunit:
     runs-on: ubuntu-20.04
     name: eunit / OTP ${{matrix.otp}} / FDB ${{matrix.fdb}}
