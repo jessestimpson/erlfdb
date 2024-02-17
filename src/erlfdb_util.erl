@@ -75,15 +75,17 @@ create_and_open_tenant(Db, Options, TenantName) ->
         _ ->
             ok
     end,
-    erlfdb_tenant_management:transactional(Db,
+    erlfdb_tenant_management:transactional(
+        Db,
         fun(Tx) ->
-                case erlfdb:wait(erlfdb_tenant_management:get_tenant(Tx, TenantName)) of
-                    not_found ->
-                        erlfdb_tenant_management:create_tenant(Tx, TenantName);
-                    _ ->
-                        ok
-                end
-        end),
+            case erlfdb:wait(erlfdb_tenant_management:get_tenant(Tx, TenantName)) of
+                not_found ->
+                    erlfdb_tenant_management:create_tenant(Tx, TenantName);
+                _ ->
+                    ok
+            end
+        end
+    ),
     erlfdb:open_tenant(Db, TenantName).
 
 clear_and_delete_test_tenant(Db) ->

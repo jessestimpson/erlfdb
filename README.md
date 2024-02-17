@@ -21,7 +21,7 @@ Building
 Assuming you have installed the FoundationDB C API library, building erlfdb
 is as simple as:
 
-    $ make
+    $ rebar3 compile
 
 Alternatively, adding erlfdb as a rebar dependency should Just Work ®.
 
