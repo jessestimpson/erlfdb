@@ -9,182 +9,101 @@ permissions:
   contents: read
 
 jobs:
-
-  otp_fdb_matrix:
+  eunit:
+    runs-on: ubuntu-20.04
+    name: eunit / OTP ${{matrix.otp}} / FDB ${{matrix.fdb}}
     strategy:
       matrix:
-        otp-version: ['22', '23', '24']
-        fdb-version: ['6.3.22']
-    runs-on: ubuntu-latest
+        otp: ['25']
+        fdb: ['7.3.32']
     env:
-      FDB_VERSION: ${{ matrix.fdb-version }}
-      # Set to 1 for verbose rebar3 logging
-      DEBUG: 0
-      # Set to 1 for even more verbose rebar3 logging
-      DIAGNOSTIC: 0
+      FDB_VERSION: ${{ matrix.fdb }}
     steps:
-      - name: Check out repository code
-        uses: actions/checkout@v2
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
         with:
-          persist-credentials: false
-          submodules: recursive
-      - name: Setup Erlang
-        uses: ./.github/actions/setup-beam
-        with:
-          otp-version: ${{ matrix.otp-version }}
-          rebar3-version: '3.17'
+          otp-version: ${{matrix.otp}}
       - name: Install FoundationDB
         run: |
           wget https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-clients_${FDB_VERSION}-1_amd64.deb
           wget https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-server_${FDB_VERSION}-1_amd64.deb
           sudo dpkg -i foundationdb-clients_${FDB_VERSION}-1_amd64.deb
           sudo dpkg -i foundationdb-server_${FDB_VERSION}-1_amd64.deb
-      - name: Compile
-        run: rebar3 compile
       - name: EUnit tests
         run: rebar3 eunit
-      - name: Setup tmate session on job failure
-        uses: ./.github/actions/tmate
-        if: ${{ failure() }}
-        with:
-          limit-access-to-actor: true
 
-  os_fdb_matrix:
-    strategy:
-      matrix:
-        # erlef/setup-beam action does not support macos yet
-        os: [ubuntu-latest, windows-latest]
-        fdb-version: ['6.2.30', '6.3.22']
-        # Windows builds are not being published beyond 6.3.9 right now
-        exclude:
-          - os: windows-latest
-            fdb-version: '6.3.22'
-        include:
-          - os: windows-latest
-            fdb-version: '6.3.9'
-    runs-on: ${{ matrix.os }}
-    env:
-      FDB_VERSION: ${{ matrix.fdb-version }}
-      # This profile uses the FDB server started in the "Install FoundationDB" step
-      # instead of starting another one (the code that manages the "local" FDB in the
-      # test suite is not designed with x-platform compatibility in mind)
-      REBAR_PROFILE: devcontainer
-      # Set to 1 for verbose rebar3 logging
-      DEBUG: 0
-      # Set to 1 for even more verbose rebar3 logging
-      DIAGNOSTIC: 0
-    steps:
-      - name: Check out repository code
-        uses: actions/checkout@v2
-        with:
-          persist-credentials: false
-          submodules: recursive
-      - name: Setup Erlang
-        uses: ./.github/actions/setup-beam
-        with:
-          otp-version: '24'
-          rebar3-version: '3.17'
-      - name: Setup MSVC toolchain
-        if: ${{ matrix.os == 'windows-latest' }}
-        uses: ./.github/actions/msvc-dev-cmd
-      - name: Install FoundationDB (Ubuntu)
-        if: ${{ matrix.os == 'ubuntu-latest' }}
-        run: |
-          wget https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-clients_${FDB_VERSION}-1_amd64.deb
-          wget https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-server_${FDB_VERSION}-1_amd64.deb
-          sudo dpkg -i foundationdb-clients_${FDB_VERSION}-1_amd64.deb
-          sudo dpkg -i foundationdb-server_${FDB_VERSION}-1_amd64.deb
-      - name: Install FoundationDB (Windows)
-        if: ${{ matrix.os == 'windows-latest' }}
-        run: |
-          Set-PSDebug -Trace 1
-          Invoke-WebRequest -Uri https://github.com/apple/foundationdb/releases/download/$env:FDB_VERSION/foundationdb-$env:FDB_VERSION-x64.msi -OutFile foundationdb-$env:FDB_VERSION-x64.msi
-          Start-Process -Wait -FilePath msiexec -ArgumentList /i, foundationdb-$env:FDB_VERSION-x64.msi, /passive
-          echo "C:\Program Files\foundationdb\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-      - name: Install FoundationDB (macOS)
-        if: ${{ matrix.os == 'macos-latest' }}
-        run: |
-          wget https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/FoundationDB-${FDB_VERSION}.pkg
-          sudo installer -allowUntrusted -verboseR -pkg FoundationDB-${FDB_VERSION}.pkg -target /
-      - name: Compile
-        run: rebar3 compile
-      - name: EUnit tests
-        run: rebar3 eunit
-      - name: Setup tmate session on job failure
-        uses: ./.github/actions/tmate
-        if: ${{ failure() }}
-        with:
-          limit-access-to-actor: true
+# The binding_tester is currently disabled until we can resolve the broken dependency on
+#      image: apache/couchdbci-debian:erlfdb-erlang-24.1.5.0-fdb-6.3.18-1
 
-  binding_tester:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        test-name: [api, directory, directory_hca, tuple]
-        api-version: [610, 620, 630]
-        include:
-          # The `scripted` test only supports the latest API version
-          - test-name: scripted
-            api-version: 630
-    container:
-      image: apache/couchdbci-debian:erlfdb-erlang-24.1.5.0-fdb-6.3.18-1
-    services:
-      foundationdb:
-        image: foundationdb/foundationdb:6.3.18
-    env:
-      # This profile just ensures we use the FDB server in the service container
-      REBAR_PROFILE: devcontainer
-    steps:
-      - name: Create FDB cluster file
-        env:
-          # This needs to match the name of the service above so the script can do
-          # a DNS lookup to write down the coordinator IP in the fdb.cluster file
-          FDB_COORDINATOR: foundationdb
-        shell: bash
-        run: /usr/local/bin/create_cluster_file.bash
-      - name: Initialize FDB database
-        run: fdbcli --exec "configure new single ssd"
-      - name: Check out repository code
-        uses: actions/checkout@v2
-        with:
-          persist-credentials: false
-      - name: Compile erlfdb
-        run: rebar3 compile
-      - name: Execute unit tests
-        run: rebar3 eunit
-      - name: Execute binding test
-        env:
-          TEST_NAME: ${{ matrix.test-name }}
-          API_VERSION: ${{ matrix.api-version }}
-          COVER_ENABLED: true
-          ERL_LIBS: _build/devcontainer+test/lib/erlfdb/
-        run: |
-          mkdir -p /usr/src/erlfdb/test/
-          ln -s $GITHUB_WORKSPACE/test/tester.es /usr/src/erlfdb/test/tester.es
-          /usr/src/foundationdb/bindings/bindingtester/bindingtester.py erlang \
-              --test-name $TEST_NAME \
-              --api-version $API_VERSION \
-              --instruction-prefix $TEST_NAME \
-              --num-ops 10000
-      - name: Upload results to Coveralls
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          COVERALLS_FLAG_NAME: bindingtest-${{ matrix.test-name }}-${{ matrix.api-version }}
-        run: rebar3 as test coveralls send
-
-  finalize_coverage_report:
-    needs: [binding_tester]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Finalize Coveralls report
-        run: |
-          curl https://coveralls.io/webhook \
-           --header 'Content-Type: application/json' \
-            --data '{
-                "repo_name": "${{ github.repository }}",
-                "repo_token": "${{ secrets.GITHUB_TOKEN }}",
-                "payload": {
-                  "build_num": ${{ github.run_number }},
-                  "status": "done"
-                }
-              }'
+          #  binding_tester:
+          #    runs-on: ubuntu-20.04
+          #    strategy:
+          #      matrix:
+          #        test-name: [api, directory, directory_hca, tuple]
+          #        api-version: [610, 620, 630]
+          #        include:
+          #          # The `scripted` test only supports the latest API version
+          #          - test-name: scripted
+          #            api-version: 630
+          #    container:
+          #      image: apache/couchdbci-debian:erlfdb-erlang-24.1.5.0-fdb-6.3.18-1
+          #    services:
+          #      foundationdb:
+          #        image: foundationdb/foundationdb:6.3.18
+          #    env:
+          #      # This profile just ensures we use the FDB server in the service container
+          #      REBAR_PROFILE: devcontainer
+          #    steps:
+          #      - name: Create FDB cluster file
+          #        env:
+          #          # This needs to match the name of the service above so the script can do
+          #          # a DNS lookup to write down the coordinator IP in the fdb.cluster file
+          #          FDB_COORDINATOR: foundationdb
+          #        shell: bash
+          #        run: /usr/local/bin/create_cluster_file.bash
+          #      - name: Initialize FDB database
+          #        run: fdbcli --exec "configure new single ssd"
+          #      - name: Check out repository code
+          #        uses: actions/checkout@v2
+          #        with:
+          #          persist-credentials: false
+          #      - name: Compile erlfdb
+          #        run: rebar3 compile
+          #      - name: Execute unit tests
+          #        run: rebar3 eunit
+          #      - name: Execute binding test
+          #        env:
+          #          TEST_NAME: ${{ matrix.test-name }}
+          #          API_VERSION: ${{ matrix.api-version }}
+          #          COVER_ENABLED: true
+          #          ERL_LIBS: _build/devcontainer+test/lib/erlfdb/
+          #        run: |
+          #          mkdir -p /usr/src/erlfdb/test/
+          #          ln -s $GITHUB_WORKSPACE/test/tester.es /usr/src/erlfdb/test/tester.es
+          #          /usr/src/foundationdb/bindings/bindingtester/bindingtester.py erlang \
+          #              --test-name $TEST_NAME \
+          #              --api-version $API_VERSION \
+          #              --instruction-prefix $TEST_NAME \
+          #              --num-ops 10000
+            #      - name: Upload results to Coveralls
+            #        env:
+            #          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            #          COVERALLS_FLAG_NAME: bindingtest-${{ matrix.test-name }}-${{ matrix.api-version }}
+            #        run: rebar3 as test coveralls send
+            #
+            #  finalize_coverage_report:
+            #    needs: [binding_tester]
+            #    runs-on: ubuntu-latest
+            #    steps:
+            #      - name: Finalize Coveralls report
+            #        run: |
+            #          curl https://coveralls.io/webhook \
+            #           --header 'Content-Type: application/json' \
+            #            --data '{
+            #                "repo_name": "${{ github.repository }}",
+            #                "repo_token": "${{ secrets.GITHUB_TOKEN }}",
+            #                "payload": {
+            #                  "build_num": ${{ github.run_number }},
+            #                  "status": "done"
+            #                }
+            #              }'
