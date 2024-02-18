@@ -46,9 +46,14 @@ CoverallConfig =
     },
 
     {
-        "(linux|solaris|freebsd|netbsd|openbsd|dragonfly|darwin|gnu)",
+        "(linux|solaris|freebsd|netbsd|openbsd|dragonfly|gnu)",
         "LDFLAGS",
         "$LDFLAGS -L/usr/local/lib -lfdb_c"
+    },
+    {
+        "(darwin)",
+        "LDFLAGS",
+        "$LDFLAGS -rpath /usr/local/lib -L/usr/local/lib -lfdb_c"
     },
     {
         "win32",
