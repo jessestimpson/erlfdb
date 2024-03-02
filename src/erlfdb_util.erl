@@ -38,7 +38,7 @@
 
 % Some systems are unable to compute the shared machine id without root,
 % so we'll provide a hardcoded machine id for our managed fdbserver
--define(TEST_CLUSTER_MACHINE_ID, <<?MODULE_STRING>>).
+-define(TEST_CLUSTER_MACHINE_ID, ?MODULE_STRING).
 -define(TEST_TENANT_NAME, <<?MODULE_STRING, ".test">>).
 
 get_test_db() ->
@@ -194,7 +194,7 @@ init_test_cluster_int(Options) ->
             <<"-L">>,
             Dir,
             <<"-i">>,
-            ?TEST_CLUSTER_MACHINE_ID
+            <<?TEST_CLUSTER_MACHINE_ID>>
         ],
         FDBPortOpts = [{args, FDBPortArgs}],
         FDBServer = erlang:open_port(FDBPortName, FDBPortOpts),
@@ -299,6 +299,9 @@ port_loop(FDBServer, Monitor) ->
     receive
         close ->
             ok;
+        {FDBServer, {data, "ZoneId set to " ?TEST_CLUSTER_MACHINE_ID ", dcId to [not set]\n"}} ->
+            % Silence start message
+            port_loop(FDBServer, Monitor);
         {FDBServer, {data, "FDBD joined cluster.\n"}} ->
             % Silence start message
             port_loop(FDBServer, Monitor);
