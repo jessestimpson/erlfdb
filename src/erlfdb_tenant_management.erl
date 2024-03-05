@@ -11,16 +11,21 @@
 -define(IS_DB, {erlfdb_database, _}).
 -define(IS_TX, {erlfdb_transaction, _}).
 
+-spec transactional(erlfdb:database(), function()) -> any().
 transactional(?IS_DB = Db, UserFun) ->
     erlfdb:transactional(Db, fun(Tx) ->
         ok = erlfdb:set_option(Tx, special_key_space_enable_writes),
         UserFun(Tx)
     end).
 
+-spec list_tenants(erlfdb:database() | erlfdb:transaction()) -> [erlfdb:tenant_name()].
 list_tenants(DbOrTx) ->
     % Tenant names cannot start with \xff, so this is guaranteed to get all tenants
     list_tenants(DbOrTx, <<>>, <<16#FF>>, []).
 
+-spec list_tenants(erlfdb:database() | erlfdb:transaction(), erlfdb:key(), erlfdb:key(), [
+    erlfdb:fold_option()
+]) -> [erlfdb:tenant_name()].
 list_tenants(?IS_DB = Db, Begin, End, Opts) ->
     erlfdb:transactional(Db, fun(Tx) ->
         ok = erlfdb:set_option(Tx, read_system_keys),
@@ -29,6 +34,8 @@ list_tenants(?IS_DB = Db, Begin, End, Opts) ->
 list_tenants(?IS_TX = Tx, Begin, End, Opts) ->
     erlfdb:get_range(Tx, ?TENANT_MAP(Begin), ?TENANT_MAP(End), Opts).
 
+-spec get_tenant(erlfdb:database() | erlfdb:transaction(), erlfdb:tenant_name()) ->
+    erlfdb:future() | erlfdb:result().
 get_tenant(?IS_DB = Db, TenantName) ->
     erlfdb:transactional(Db, fun(Tx) ->
         ok = erlfdb:set_option(Tx, read_system_keys),
@@ -37,11 +44,12 @@ get_tenant(?IS_DB = Db, TenantName) ->
 get_tenant(?IS_TX = Tx, TenantName) ->
     erlfdb:get(Tx, ?TENANT_MAP(TenantName)).
 
+-spec create_tenant(erlfdb:database() | erlfdb:transaction(), erlfdb:tenant_name()) -> ok.
 create_tenant(?IS_DB = Db, TenantName) ->
     transactional(Db, fun(Tx) ->
         case erlfdb:wait(get_tenant(Tx, TenantName)) of
             not_found ->
-                erlfdb:wait(create_tenant(Tx, TenantName));
+                create_tenant(Tx, TenantName);
             _ ->
                 % tenant_already_exists
                 erlang:error({erlfdb_error, 2132})
@@ -50,9 +58,10 @@ create_tenant(?IS_DB = Db, TenantName) ->
 create_tenant(?IS_TX = Tx, TenantName) ->
     erlfdb:set(Tx, ?TENANT_MAP(TenantName), <<>>).
 
+-spec delete_tenant(erlfdb:database() | erlfdb:transaction(), erlfdb:tenant_name()) -> ok.
 delete_tenant(?IS_DB = Db, TenantName) ->
     transactional(Db, fun(Tx) ->
-        erlfdb:wait(delete_tenant(Tx, TenantName))
+        delete_tenant(Tx, TenantName)
     end);
 delete_tenant(?IS_TX = Tx, TenantName) ->
     erlfdb:clear(Tx, ?TENANT_MAP(TenantName)).

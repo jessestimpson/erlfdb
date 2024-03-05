@@ -159,7 +159,7 @@ debug_cluster(Tx, Start, End) ->
                 repr(Val)
             ])
         end,
-        erlfdb:get_range(Tx, Start, End)
+        erlfdb:wait(erlfdb:get_range(Tx, Start, End))
     ).
 
 init_test_cluster_int(Options) ->

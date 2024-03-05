@@ -66,6 +66,24 @@
 
 -define(DEFAULT_API_VERSION, 730).
 
+-export_type([
+    atomic_mode/0,
+    atomic_operand/0,
+    database/0,
+    database_option/0,
+    error/0,
+    error_predicate/0,
+    future/0,
+    future_result/0,
+    key/0,
+    key_selector/0,
+    tenant/0,
+    transaction/0,
+    transaction_option/0,
+    value/0,
+    version/0
+]).
+
 -type error() :: {erlfdb_error, Code :: integer()}.
 -type future() :: {erlfdb_future, reference(), reference()}.
 -type database() :: {erlfdb_database, reference()}.
@@ -74,6 +92,11 @@
 
 -type option_value() :: integer() | binary().
 
+-type key() :: binary().
+-type value() :: binary().
+
+-type version() :: integer().
+
 -type key_selector() ::
     {Key :: binary(), lt | lteq | gt | gteq}
     | {Key :: binary(), OrEqual :: boolean(), Offset :: integer()}.
@@ -81,10 +104,12 @@
 -type future_result() ::
     database()
     | integer()
-    | binary()
-    | {[{binary(), binary()}], integer(), boolean()}
+    | value()
+    | {[{key(), value()}], integer(), boolean()}
     | not_found
-    | {error, invalid_future_type}.
+    | []
+    | [{key(), value()}]
+    | ok.
 
 -type network_option() ::
     local_address
@@ -227,7 +252,7 @@ create_database(ClusterFilePath) ->
         end,
     erlfdb_create_database(NifPath).
 
--spec database_open_tenant(database(), TenantName :: binary()) -> database().
+-spec database_open_tenant(database(), TenantName :: binary()) -> tenant().
 database_open_tenant(Database, <<>>) ->
     database_open_tenant(Database, <<0>>);
 database_open_tenant({erlfdb_database, Database}, TenantName) ->
