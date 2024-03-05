@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
 
 permissions:
@@ -14,7 +14,7 @@ jobs:
     name: fmt / OTP ${{matrix.otp}}
     strategy:
       matrix:
-        otp: ['25']
+        otp: ["25"]
     steps:
       - uses: actions/checkout@v4
       - uses: erlef/setup-beam@v1
@@ -22,13 +22,37 @@ jobs:
           otp-version: ${{matrix.otp}}
       - name: Checking code formatting
         run: rebar3 fmt --check
+
+  dialyzer:
+    runs-on: ubuntu-20.04
+    name: dialyzer / OTP ${{matrix.otp}} / FDB ${{matrix.fdb}}
+    strategy:
+      matrix:
+        otp: ["25"]
+        fdb: ["7.3.32"]
+    env:
+      FDB_VERSION: ${{ matrix.fdb }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{matrix.otp}}
+      - name: Install FoundationDB
+        run: |
+          wget https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-clients_${FDB_VERSION}-1_amd64.deb
+          wget https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-server_${FDB_VERSION}-1_amd64.deb
+          sudo dpkg -i foundationdb-clients_${FDB_VERSION}-1_amd64.deb
+          sudo dpkg -i foundationdb-server_${FDB_VERSION}-1_amd64.deb
+      - name: Dialyzer
+        run: rebar3 dialyzer
+
   eunit:
     runs-on: ubuntu-20.04
     name: eunit / OTP ${{matrix.otp}} / FDB ${{matrix.fdb}}
     strategy:
       matrix:
-        otp: ['25']
-        fdb: ['7.3.32']
+        otp: ["25"]
+        fdb: ["7.3.32"]
     env:
       FDB_VERSION: ${{ matrix.fdb }}
     steps:
@@ -44,79 +68,78 @@ jobs:
           sudo dpkg -i foundationdb-server_${FDB_VERSION}-1_amd64.deb
       - name: EUnit tests
         run: rebar3 eunit
-
 # The binding_tester is currently disabled until we can resolve the broken dependency on
 #      image: apache/couchdbci-debian:erlfdb-erlang-24.1.5.0-fdb-6.3.18-1
 
-          #  binding_tester:
-          #    runs-on: ubuntu-20.04
-          #    strategy:
-          #      matrix:
-          #        test-name: [api, directory, directory_hca, tuple]
-          #        api-version: [610, 620, 630]
-          #        include:
-          #          # The `scripted` test only supports the latest API version
-          #          - test-name: scripted
-          #            api-version: 630
-          #    container:
-          #      image: apache/couchdbci-debian:erlfdb-erlang-24.1.5.0-fdb-6.3.18-1
-          #    services:
-          #      foundationdb:
-          #        image: foundationdb/foundationdb:6.3.18
-          #    env:
-          #      # This profile just ensures we use the FDB server in the service container
-          #      REBAR_PROFILE: devcontainer
-          #    steps:
-          #      - name: Create FDB cluster file
-          #        env:
-          #          # This needs to match the name of the service above so the script can do
-          #          # a DNS lookup to write down the coordinator IP in the fdb.cluster file
-          #          FDB_COORDINATOR: foundationdb
-          #        shell: bash
-          #        run: /usr/local/bin/create_cluster_file.bash
-          #      - name: Initialize FDB database
-          #        run: fdbcli --exec "configure new single ssd"
-          #      - name: Check out repository code
-          #        uses: actions/checkout@v2
-          #        with:
-          #          persist-credentials: false
-          #      - name: Compile erlfdb
-          #        run: rebar3 compile
-          #      - name: Execute unit tests
-          #        run: rebar3 eunit
-          #      - name: Execute binding test
-          #        env:
-          #          TEST_NAME: ${{ matrix.test-name }}
-          #          API_VERSION: ${{ matrix.api-version }}
-          #          COVER_ENABLED: true
-          #          ERL_LIBS: _build/devcontainer+test/lib/erlfdb/
-          #        run: |
-          #          mkdir -p /usr/src/erlfdb/test/
-          #          ln -s $GITHUB_WORKSPACE/test/tester.es /usr/src/erlfdb/test/tester.es
-          #          /usr/src/foundationdb/bindings/bindingtester/bindingtester.py erlang \
-          #              --test-name $TEST_NAME \
-          #              --api-version $API_VERSION \
-          #              --instruction-prefix $TEST_NAME \
-          #              --num-ops 10000
-            #      - name: Upload results to Coveralls
-            #        env:
-            #          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-            #          COVERALLS_FLAG_NAME: bindingtest-${{ matrix.test-name }}-${{ matrix.api-version }}
-            #        run: rebar3 as test coveralls send
-            #
-            #  finalize_coverage_report:
-            #    needs: [binding_tester]
-            #    runs-on: ubuntu-latest
-            #    steps:
-            #      - name: Finalize Coveralls report
-            #        run: |
-            #          curl https://coveralls.io/webhook \
-            #           --header 'Content-Type: application/json' \
-            #            --data '{
-            #                "repo_name": "${{ github.repository }}",
-            #                "repo_token": "${{ secrets.GITHUB_TOKEN }}",
-            #                "payload": {
-            #                  "build_num": ${{ github.run_number }},
-            #                  "status": "done"
-            #                }
-            #              }'
+#  binding_tester:
+#    runs-on: ubuntu-20.04
+#    strategy:
+#      matrix:
+#        test-name: [api, directory, directory_hca, tuple]
+#        api-version: [610, 620, 630]
+#        include:
+#          # The `scripted` test only supports the latest API version
+#          - test-name: scripted
+#            api-version: 630
+#    container:
+#      image: apache/couchdbci-debian:erlfdb-erlang-24.1.5.0-fdb-6.3.18-1
+#    services:
+#      foundationdb:
+#        image: foundationdb/foundationdb:6.3.18
+#    env:
+#      # This profile just ensures we use the FDB server in the service container
+#      REBAR_PROFILE: devcontainer
+#    steps:
+#      - name: Create FDB cluster file
+#        env:
+#          # This needs to match the name of the service above so the script can do
+#          # a DNS lookup to write down the coordinator IP in the fdb.cluster file
+#          FDB_COORDINATOR: foundationdb
+#        shell: bash
+#        run: /usr/local/bin/create_cluster_file.bash
+#      - name: Initialize FDB database
+#        run: fdbcli --exec "configure new single ssd"
+#      - name: Check out repository code
+#        uses: actions/checkout@v2
+#        with:
+#          persist-credentials: false
+#      - name: Compile erlfdb
+#        run: rebar3 compile
+#      - name: Execute unit tests
+#        run: rebar3 eunit
+#      - name: Execute binding test
+#        env:
+#          TEST_NAME: ${{ matrix.test-name }}
+#          API_VERSION: ${{ matrix.api-version }}
+#          COVER_ENABLED: true
+#          ERL_LIBS: _build/devcontainer+test/lib/erlfdb/
+#        run: |
+#          mkdir -p /usr/src/erlfdb/test/
+#          ln -s $GITHUB_WORKSPACE/test/tester.es /usr/src/erlfdb/test/tester.es
+#          /usr/src/foundationdb/bindings/bindingtester/bindingtester.py erlang \
+#              --test-name $TEST_NAME \
+#              --api-version $API_VERSION \
+#              --instruction-prefix $TEST_NAME \
+#              --num-ops 10000
+#      - name: Upload results to Coveralls
+#        env:
+#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#          COVERALLS_FLAG_NAME: bindingtest-${{ matrix.test-name }}-${{ matrix.api-version }}
+#        run: rebar3 as test coveralls send
+#
+#  finalize_coverage_report:
+#    needs: [binding_tester]
+#    runs-on: ubuntu-latest
+#    steps:
+#      - name: Finalize Coveralls report
+#        run: |
+#          curl https://coveralls.io/webhook \
+#           --header 'Content-Type: application/json' \
+#            --data '{
+#                "repo_name": "${{ github.repository }}",
+#                "repo_token": "${{ secrets.GITHUB_TOKEN }}",
+#                "payload": {
+#                  "build_num": ${{ github.run_number }},
+#                  "status": "done"
+#                }
+#              }'

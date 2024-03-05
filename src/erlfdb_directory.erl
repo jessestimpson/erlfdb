@@ -591,7 +591,7 @@ create_node_name(Tx, Parent, NameIn) ->
             CPLen = size(ContentPrefix),
             NewName = <<ContentPrefix:CPLen/binary, BaseId/binary>>,
 
-            KeysExist = erlfdb:get_range_startswith(Tx, NewName, [{limit, 1}]),
+            KeysExist = erlfdb:wait(erlfdb:get_range_startswith(Tx, NewName, [{limit, 1}])),
             if
                 KeysExist == [] ->
                     ok;
