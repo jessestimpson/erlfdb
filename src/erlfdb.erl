@@ -61,6 +61,9 @@
     get_range_startswith/2,
     get_range_startswith/3,
 
+    get_mapped_range/4,
+    get_mapped_range/5,
+
     fold_range/5,
     fold_range/6,
 
@@ -141,6 +144,7 @@
     future/0,
     key/0,
     key_selector/0,
+    mapper/0,
     result/0,
     snapshot/0,
     tenant/0,
@@ -164,6 +168,7 @@
 -record(fold_st, {
     start_key,
     end_key,
+    mapper,
     limit,
     target_bytes,
     streaming_mode,
@@ -186,11 +191,13 @@
     | {target_bytes, non_neg_integer()}
     | {streaming_mode, atom()}
     | {iteration, pos_integer()}
-    | {snapshot, boolean()}.
+    | {snapshot, boolean()}
+    | {mapper, binary()}.
 -type future() :: erlfdb_nif:future().
 -type key() :: erlfdb_nif:key().
 -type key_selector() :: erlfdb_nif:key_selector().
 -type result() :: erlfdb_nif:future_result().
+-type mapper() :: tuple().
 -type snapshot() :: {erlfdb_snapshot, transaction()}.
 -type tenant() :: erlfdb_nif:tenant().
 -type tenant_name() :: binary().
@@ -429,6 +436,15 @@ get_range_startswith(DbOrTx, Prefix, Options) ->
     StartKey = Prefix,
     EndKey = erlfdb_key:strinc(Prefix),
     get_range(DbOrTx, StartKey, EndKey, Options).
+
+-spec get_mapped_range(database() | transaction(), key(), key(), mapper()) -> future().
+get_mapped_range(DbOrTx, StartKey, EndKey, Mapper) ->
+    get_mapped_range(DbOrTx, StartKey, EndKey, Mapper, []).
+
+-spec get_mapped_range(database() | transaction(), key(), key(), mapper(), [fold_option()]) ->
+    future().
+get_mapped_range(DbOrTx, StartKey, EndKey, Mapper, Options) ->
+    get_range(DbOrTx, StartKey, EndKey, [{mapper, erlfdb_tuple:pack(Mapper)} | Options]).
 
 -spec fold_range(database() | transaction(), key(), key(), function(), any()) -> any().
 fold_range(DbOrTx, StartKey, EndKey, Fun, Acc) ->
@@ -809,7 +825,7 @@ fold_range_int(Tx, ?IS_FOLD_FUTURE = FI, Fun, Acc) ->
     end.
 
 -spec fold_range_future_int(transaction(), #fold_st{}) -> fold_future().
-fold_range_future_int(?IS_TX = Tx, #fold_st{} = St) ->
+fold_range_future_int(?IS_TX = Tx, #fold_st{mapper = undefined} = St) ->
     #fold_st{
         start_key = StartKey,
         end_key = EndKey,
@@ -833,6 +849,33 @@ fold_range_future_int(?IS_TX = Tx, #fold_st{} = St) ->
         Reverse
     ),
 
+    {fold_info, St, Future};
+fold_range_future_int(?IS_TX = Tx, #fold_st{} = St) ->
+    #fold_st{
+        start_key = StartKey,
+        end_key = EndKey,
+        mapper = Mapper,
+        limit = Limit,
+        target_bytes = TargetBytes,
+        streaming_mode = StreamingMode,
+        iteration = Iteration,
+        snapshot = Snapshot,
+        reverse = Reverse
+    } = St,
+
+    Future = erlfdb_nif:transaction_get_mapped_range(
+        Tx,
+        StartKey,
+        EndKey,
+        Mapper,
+        Limit,
+        TargetBytes,
+        StreamingMode,
+        Iteration,
+        Snapshot,
+        Reverse
+    ),
+
     {fold_info, St, Future}.
 
 -spec options_to_fold_st(key(), key(), [fold_option()]) -> #fold_st{}.
@@ -844,6 +887,7 @@ options_to_fold_st(StartKey, EndKey, Options) ->
             I when is_integer(I) -> I
         end,
     #fold_st{
+        mapper = erlfdb_util:get(Options, mapper),
         start_key = erlfdb_key:to_selector(StartKey),
         end_key = erlfdb_key:to_selector(EndKey),
         limit = erlfdb_util:get(Options, limit, 0),

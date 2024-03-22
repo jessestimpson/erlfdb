@@ -281,6 +281,89 @@ static inline ERL_NIF_TERM erlfdb_future_get_keyvalue_array(ErlNifEnv *env,
     }
 }
 
+static inline ERL_NIF_TERM
+erlfdb_future_get_mappedkeyvalue_array(ErlNifEnv *env, ErlFDBFuture *f) {
+    FDBMappedKeyValue const *mappedkvs;
+    FDBKeyValue *data;
+    fdb_bool_t more;
+    int count;
+    unsigned char *buf;
+    ERL_NIF_TERM pq_key;
+    ERL_NIF_TERM pq_val;
+    ERL_NIF_TERM sq_begin;
+    ERL_NIF_TERM sq_end;
+    ERL_NIF_TERM key;
+    ERL_NIF_TERM val;
+    ERL_NIF_TERM ret;
+    ERL_NIF_TERM kvs_ret;
+    fdb_error_t err;
+    int i, j;
+
+    err = fdb_future_get_mappedkeyvalue_array(f->future, &mappedkvs, &count,
+                                              &more);
+    if (err != 0) {
+        return erlfdb_erlang_error(env, err);
+    }
+
+    ret = enif_make_list(env, 0);
+
+    for (i = count - 1; i >= 0; i--) {
+        // pq_key
+        buf = enif_make_new_binary(env, mappedkvs[i].key.key_length, &pq_key);
+        memcpy(buf, mappedkvs[i].key.key, mappedkvs[i].key.key_length);
+
+        // pq_val (which is also a key)
+        buf = enif_make_new_binary(env, mappedkvs[i].value.key_length, &pq_val);
+        memcpy(buf, mappedkvs[i].value.key, mappedkvs[i].value.key_length);
+
+        const FDBGetRangeReqAndResult *getRange = &mappedkvs[i].getRange;
+
+        // sq_begin
+        buf = enif_make_new_binary(env, getRange->begin.key.key_length,
+                                   &sq_begin);
+        memcpy(buf, getRange->begin.key.key, getRange->begin.key.key_length);
+
+        // sq_end
+        buf = enif_make_new_binary(env, getRange->end.key.key_length, &sq_end);
+        memcpy(buf, getRange->end.key.key, getRange->end.key.key_length);
+
+        data = getRange->data;
+
+        kvs_ret = enif_make_list(env, 0);
+        for (j = getRange->m_size - 1; j >= 0; j--) {
+
+            // mapped key
+            buf = enif_make_new_binary(env, data[j].key_length, &key);
+            memcpy(buf, data[j].key, data[j].key_length);
+
+            // mapped val
+            buf = enif_make_new_binary(env, data[j].value_length, &val);
+            memcpy(buf, data[j].value, data[j].value_length);
+
+            kvs_ret = enif_make_list_cell(env, T2(env, key, val), kvs_ret);
+        }
+
+        // {
+        //   {PrimaryQueryKey, PrimaryQueryValue},
+        //   {SecondaryQueryKeyBegin, SecondaryQueryKeyEnd},
+        //   [
+        //      {SecondaryQueryKey, SecondaryQueryValue},
+        //      ...
+        //   ]
+        // }
+        ret = enif_make_list_cell(env,
+                                  T3(env, T2(env, pq_key, pq_val),
+                                     T2(env, sq_begin, sq_end), kvs_ret),
+                                  ret);
+    }
+
+    if (more) {
+        return T3(env, ret, enif_make_int(env, count), ATOM_true);
+    } else {
+        return T3(env, ret, enif_make_int(env, count), ATOM_false);
+    }
+}
+
 static int erlfdb_load(ErlNifEnv *env, void **priv,
                        ERL_NIF_TERM num_schedulers) {
     ErlFDBSt *st = (ErlFDBSt *)enif_alloc(sizeof(ErlFDBSt));
@@ -659,6 +742,8 @@ static ERL_NIF_TERM erlfdb_future_get(ErlNifEnv *env, int argc,
         return erlfdb_future_get_string_array(env, f);
     } else if (f->ftype == ErlFDB_FT_KEYVALUE_ARRAY) {
         return erlfdb_future_get_keyvalue_array(env, f);
+    } else if (f->ftype == ErlFDB_FT_MAPPEDKEYVALUE_ARRAY) {
+        return erlfdb_future_get_mappedkeyvalue_array(env, f);
     }
 
     return enif_raise_exception(env, ATOM_invalid_future_type);
@@ -1352,6 +1437,108 @@ static ERL_NIF_TERM erlfdb_transaction_get_range(ErlNifEnv *env, int argc,
         target_bytes, mode, iteration, snapshot, reverse);
 
     return erlfdb_create_future(env, future, ErlFDB_FT_KEYVALUE_ARRAY);
+}
+
+static ERL_NIF_TERM
+erlfdb_transaction_get_mapped_range(ErlNifEnv *env, int argc,
+                                    const ERL_NIF_TERM argv[]) {
+    ErlFDBSt *st = (ErlFDBSt *)enif_priv_data(env);
+    ErlFDBTransaction *t;
+
+    ErlNifBinary skey;
+    fdb_bool_t sor_equal;
+    int soffset;
+
+    ErlNifBinary ekey;
+    fdb_bool_t eor_equal;
+    int eoffset;
+
+    ErlNifBinary mapper;
+
+    int limit;
+    int target_bytes;
+    FDBStreamingMode mode;
+    int iteration;
+    fdb_bool_t snapshot;
+    int reverse;
+
+    FDBFuture *future;
+    void *res;
+
+    if (st->lib_state != ErlFDB_CONNECTED) {
+        return enif_make_badarg(env);
+    }
+
+    if (argc != 10) {
+        return enif_make_badarg(env);
+    }
+
+    if (!enif_get_resource(env, argv[0], ErlFDBTransactionRes, &res)) {
+        return enif_make_badarg(env);
+    }
+    t = (ErlFDBTransaction *)res;
+
+    if (!erlfdb_transaction_is_owner(env, t)) {
+        return enif_make_badarg(env);
+    }
+
+    if (!erlfdb_get_key_selector(env, argv[1], &skey, &sor_equal, &soffset)) {
+        return enif_make_badarg(env);
+    }
+
+    if (!erlfdb_get_key_selector(env, argv[2], &ekey, &eor_equal, &eoffset)) {
+        return enif_make_badarg(env);
+    }
+
+    if (!enif_inspect_binary(env, argv[3], &mapper)) {
+        return enif_make_badarg(env);
+    }
+
+    if (!enif_get_int(env, argv[4], &limit)) {
+        return enif_make_badarg(env);
+    }
+
+    if (!enif_get_int(env, argv[5], &target_bytes)) {
+        return enif_make_badarg(env);
+    }
+
+    if (IS_ATOM(argv[6], want_all)) {
+        mode = FDB_STREAMING_MODE_WANT_ALL;
+    } else if (IS_ATOM(argv[6], iterator)) {
+        mode = FDB_STREAMING_MODE_ITERATOR;
+    } else if (IS_ATOM(argv[6], exact)) {
+        mode = FDB_STREAMING_MODE_EXACT;
+    } else if (IS_ATOM(argv[6], small)) {
+        mode = FDB_STREAMING_MODE_SMALL;
+    } else if (IS_ATOM(argv[6], medium)) {
+        mode = FDB_STREAMING_MODE_MEDIUM;
+    } else if (IS_ATOM(argv[6], large)) {
+        mode = FDB_STREAMING_MODE_LARGE;
+    } else if (IS_ATOM(argv[6], serial)) {
+        mode = FDB_STREAMING_MODE_SERIAL;
+    } else if (!enif_get_int(env, argv[6], &mode)) {
+        return enif_make_badarg(env);
+    }
+
+    if (!enif_get_int(env, argv[7], &iteration)) {
+        return enif_make_badarg(env);
+    }
+
+    if (!erlfdb_get_boolean(argv[8], &snapshot)) {
+        return enif_make_badarg(env);
+    }
+
+    if (!enif_get_int(env, argv[9], &reverse)) {
+        return enif_make_badarg(env);
+    }
+
+    future = fdb_transaction_get_mapped_range(
+        t->transaction, (uint8_t *)skey.data, skey.size, sor_equal, soffset,
+        (uint8_t *)ekey.data, ekey.size, eor_equal, eoffset,
+        (uint8_t *)mapper.data, mapper.size, limit, target_bytes, mode,
+        iteration, snapshot, reverse);
+
+    return erlfdb_create_future(env, future, ErlFDB_FT_MAPPEDKEYVALUE_ARRAY);
 }
 
 static ERL_NIF_TERM erlfdb_transaction_set(ErlNifEnv *env, int argc,
@@ -2097,6 +2284,7 @@ static ErlNifFunc funcs[] = {
     NIF_FUNC(erlfdb_transaction_get_key, 3),
     NIF_FUNC(erlfdb_transaction_get_addresses_for_key, 2),
     NIF_FUNC(erlfdb_transaction_get_range, 9),
+    NIF_FUNC(erlfdb_transaction_get_mapped_range, 10),
     NIF_FUNC(erlfdb_transaction_set, 3),
     NIF_FUNC(erlfdb_transaction_clear, 2),
     NIF_FUNC(erlfdb_transaction_clear_range, 3),
