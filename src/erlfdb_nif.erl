@@ -42,6 +42,7 @@
     transaction_get_key/3,
     transaction_get_addresses_for_key/2,
     transaction_get_range/9,
+    transaction_get_mapped_range/10,
     transaction_set/3,
     transaction_clear/2,
     transaction_clear_range/3,
@@ -370,6 +371,43 @@ transaction_get_range(
         Reverse
     ).
 
+-spec transaction_get_mapped_range(
+    transaction(),
+    StartKeySelector :: key_selector(),
+    EndKeySelector :: key_selector(),
+    Mapper :: binary(),
+    Limit :: non_neg_integer(),
+    TargetBytes :: non_neg_integer(),
+    StreamingMode :: streaming_mode(),
+    Iteration :: non_neg_integer(),
+    Snapshot :: boolean(),
+    Reverse :: integer()
+) -> future().
+transaction_get_mapped_range(
+    {erlfdb_transaction, Tx},
+    StartKeySelector,
+    EndKeySelector,
+    Mapper,
+    Limit,
+    TargetBytes,
+    StreamingMode,
+    Iteration,
+    Snapshot,
+    Reverse
+) ->
+    erlfdb_transaction_get_mapped_range(
+        Tx,
+        StartKeySelector,
+        EndKeySelector,
+        Mapper,
+        Limit,
+        TargetBytes,
+        StreamingMode,
+        Iteration,
+        Snapshot,
+        Reverse
+    ).
+
 -spec transaction_set(transaction(), Key :: binary(), Val :: binary()) -> ok.
 transaction_set({erlfdb_transaction, Tx}, Key, Val) ->
     erlfdb_transaction_set(Tx, Key, Val).
@@ -577,6 +615,19 @@ erlfdb_transaction_get_range(
     _Transaction,
     _StartKeySelector,
     _EndKeySelector,
+    _Limit,
+    _TargetBytes,
+    _StreamingMode,
+    _Iteration,
+    _Snapshot,
+    _Reverse
+) ->
+    ?NOT_LOADED.
+erlfdb_transaction_get_mapped_range(
+    _Transaction,
+    _StartKeySelector,
+    _EndKeySelector,
+    _Mapper,
     _Limit,
     _TargetBytes,
     _StreamingMode,
