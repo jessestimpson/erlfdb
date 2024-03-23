@@ -10,19 +10,15 @@
 // License for the specific language governing permissions and limitations under
 // the License.
 
-
 #ifndef ERLFDB_ATOMS_H
 #define ERLFDB_ATOMS_H
 
 #include "erl_nif.h"
 
-
 #define ATOM_MAP(NAME) extern ERL_NIF_TERM ATOM_##NAME;
 #include "atom_names.h"
 #undef ATOM_MAP
 
-
-void erlfdb_init_atoms(ErlNifEnv* env);
-
+void erlfdb_init_atoms(ErlNifEnv *env);
 
 #endif // Included atoms.h

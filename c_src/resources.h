@@ -18,15 +18,12 @@
 #include "erl_nif.h"
 #include "fdb.h"
 
+extern ErlNifResourceType *ErlFDBFutureRes;
+extern ErlNifResourceType *ErlFDBDatabaseRes;
+extern ErlNifResourceType *ErlFDBTenantRes;
+extern ErlNifResourceType *ErlFDBTransactionRes;
 
-extern ErlNifResourceType* ErlFDBFutureRes;
-extern ErlNifResourceType* ErlFDBDatabaseRes;
-extern ErlNifResourceType* ErlFDBTenantRes;
-extern ErlNifResourceType* ErlFDBTransactionRes;
-
-
-typedef enum _ErlFDBFutureType
-{
+typedef enum _ErlFDBFutureType {
     ErlFDB_FT_NONE = 0,
     ErlFDB_FT_VOID,
     ErlFDB_FT_INT64,
@@ -36,33 +33,27 @@ typedef enum _ErlFDBFutureType
     ErlFDB_FT_KEYVALUE_ARRAY
 } ErlFDBFutureType;
 
-
-typedef struct _ErlFDBFuture
-{
-    FDBFuture* future;
+typedef struct _ErlFDBFuture {
+    FDBFuture *future;
     ErlFDBFutureType ftype;
     ErlNifPid pid;
-    ErlNifEnv* pid_env;
-    ErlNifEnv* msg_env;
+    ErlNifEnv *pid_env;
+    ErlNifEnv *msg_env;
     ERL_NIF_TERM msg_ref;
-    ErlNifMutex* lock;
+    ErlNifMutex *lock;
     bool cancelled;
 } ErlFDBFuture;
 
-
-typedef struct _ErlFDBDatabase
-{
-    FDBDatabase* database;
+typedef struct _ErlFDBDatabase {
+    FDBDatabase *database;
 } ErlFDBDatabase;
 
-typedef struct _ErlFDBTenant
-{
-    FDBTenant* tenant;
+typedef struct _ErlFDBTenant {
+    FDBTenant *tenant;
 } ErlFDBTenant;
 
-typedef struct _ErlFDBTransaction
-{
-    FDBTransaction* transaction;
+typedef struct _ErlFDBTransaction {
+    FDBTransaction *transaction;
     ERL_NIF_TERM owner;
     unsigned int txid;
     bool read_only;
@@ -70,15 +61,12 @@ typedef struct _ErlFDBTransaction
     bool has_watches;
 } ErlFDBTransaction;
 
+int erlfdb_init_resources(ErlNifEnv *env);
+void erlfdb_future_dtor(ErlNifEnv *env, void *obj);
+void erlfdb_database_dtor(ErlNifEnv *env, void *obj);
+void erlfdb_tenant_dtor(ErlNifEnv *env, void *obj);
+void erlfdb_transaction_dtor(ErlNifEnv *env, void *obj);
 
-int erlfdb_init_resources(ErlNifEnv* env);
-void erlfdb_future_dtor(ErlNifEnv* env, void* obj);
-void erlfdb_database_dtor(ErlNifEnv* env, void* obj);
-void erlfdb_tenant_dtor(ErlNifEnv* env, void* obj);
-void erlfdb_transaction_dtor(ErlNifEnv* env, void* obj);
-
-
-int erlfdb_transaction_is_owner(ErlNifEnv* env, ErlFDBTransaction* t);
-
+int erlfdb_transaction_is_owner(ErlNifEnv *env, ErlFDBTransaction *t);
 
 #endif // Included resources.h
