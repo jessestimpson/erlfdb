@@ -12,16 +12,12 @@
 
 #include "atoms.h"
 
-
 #define ATOM_MAP(NAME) ERL_NIF_TERM ATOM_##NAME
 #include "atom_names.h"
 #undef ATOM_MAP
 
-
 #define ATOM_MAP(NAME) ATOM_##NAME = enif_make_atom(env, #NAME)
-void
-erlfdb_init_atoms(ErlNifEnv* env)
-{
-    #include "atom_names.h"
+void erlfdb_init_atoms(ErlNifEnv *env) {
+#include "atom_names.h"
 }
 #undef ATOM_MAP

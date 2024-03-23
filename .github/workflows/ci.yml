@@ -20,8 +20,13 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           otp-version: ${{matrix.otp}}
-      - name: Checking code formatting
+      - name: Run rebar3 fmt check for Erlang files
         run: rebar3 fmt --check
+      - name: Run clang-format check for C files
+        uses: jidicula/clang-format-action@v4.11.0
+        with:
+          clang-format-version: "18"
+          check-path: c_src
 
   dialyzer:
     runs-on: ubuntu-20.04

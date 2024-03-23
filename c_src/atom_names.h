@@ -67,13 +67,11 @@ ATOM_MAP(disable_client_statistics_logging);
 ATOM_MAP(enable_slow_task_profiling);
 ATOM_MAP(enable_run_loop_profiling);
 
-
 // Database Options
 ATOM_MAP(location_cache_size);
 ATOM_MAP(max_watches);
 ATOM_MAP(machine_id);
 ATOM_MAP(datacenter_id);
-
 
 // Transaction Options
 ATOM_MAP(causal_write_risky);
@@ -112,7 +110,6 @@ ATOM_MAP(use_provisional_proxies);
 ATOM_MAP(report_conflicting_keys);
 ATOM_MAP(special_key_space_enable_writes);
 
-
 // Streaming mode
 ATOM_MAP(want_all);
 ATOM_MAP(iterator);
@@ -121,7 +118,6 @@ ATOM_MAP(small);
 ATOM_MAP(medium);
 ATOM_MAP(large);
 ATOM_MAP(serial);
-
 
 // Atomic Mutation Types
 ATOM_MAP(add);
@@ -136,11 +132,9 @@ ATOM_MAP(byte_max);
 ATOM_MAP(set_versionstamped_key);
 ATOM_MAP(set_versionstamped_value);
 
-
 // Conflict Range Types
 ATOM_MAP(read);
 ATOM_MAP(write);
-
 
 // Error Predicates
 ATOM_MAP(retryable);

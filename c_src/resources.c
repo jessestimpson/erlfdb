@@ -12,124 +12,85 @@
 
 #include "resources.h"
 
+ErlNifResourceType *ErlFDBFutureRes;
+ErlNifResourceType *ErlFDBDatabaseRes;
+ErlNifResourceType *ErlFDBTenantRes;
+ErlNifResourceType *ErlFDBTransactionRes;
 
-ErlNifResourceType* ErlFDBFutureRes;
-ErlNifResourceType* ErlFDBDatabaseRes;
-ErlNifResourceType* ErlFDBTenantRes;
-ErlNifResourceType* ErlFDBTransactionRes;
+int erlfdb_init_resources(ErlNifEnv *env) {
 
-
-int
-erlfdb_init_resources(ErlNifEnv* env)
-{
-
-    ErlFDBFutureRes = enif_open_resource_type(
-            env,
-            NULL,
-            "erlfdb_future",
-            erlfdb_future_dtor,
-            ERL_NIF_RT_CREATE,
-            NULL
-        );
-    if(ErlFDBFutureRes == NULL) {
+    ErlFDBFutureRes =
+        enif_open_resource_type(env, NULL, "erlfdb_future", erlfdb_future_dtor,
+                                ERL_NIF_RT_CREATE, NULL);
+    if (ErlFDBFutureRes == NULL) {
         return 0;
     }
 
-    ErlFDBDatabaseRes = enif_open_resource_type(
-            env,
-            NULL,
-            "erlfdb_database",
-            erlfdb_database_dtor,
-            ERL_NIF_RT_CREATE,
-            NULL
-        );
-    if(ErlFDBDatabaseRes == NULL) {
+    ErlFDBDatabaseRes =
+        enif_open_resource_type(env, NULL, "erlfdb_database",
+                                erlfdb_database_dtor, ERL_NIF_RT_CREATE, NULL);
+    if (ErlFDBDatabaseRes == NULL) {
         return 0;
     }
 
-    ErlFDBTenantRes = enif_open_resource_type(
-            env,
-            NULL,
-            "erlfdb_tenant",
-            erlfdb_tenant_dtor,
-            ERL_NIF_RT_CREATE,
-            NULL
-        );
-    if(ErlFDBTenantRes == NULL) {
+    ErlFDBTenantRes =
+        enif_open_resource_type(env, NULL, "erlfdb_tenant", erlfdb_tenant_dtor,
+                                ERL_NIF_RT_CREATE, NULL);
+    if (ErlFDBTenantRes == NULL) {
         return 0;
     }
 
     ErlFDBTransactionRes = enif_open_resource_type(
-            env,
-            NULL,
-            "erlfdb_transaction",
-            erlfdb_transaction_dtor,
-            ERL_NIF_RT_CREATE,
-            NULL
-        );
-    if(ErlFDBTransactionRes == NULL) {
+        env, NULL, "erlfdb_transaction", erlfdb_transaction_dtor,
+        ERL_NIF_RT_CREATE, NULL);
+    if (ErlFDBTransactionRes == NULL) {
         return 0;
     }
-
 
     return 1;
 }
 
-void
-erlfdb_future_dtor(ErlNifEnv* env, void* obj)
-{
-    ErlFDBFuture* f = (ErlFDBFuture*) obj;
+void erlfdb_future_dtor(ErlNifEnv *env, void *obj) {
+    ErlFDBFuture *f = (ErlFDBFuture *)obj;
 
-    if(f->future != NULL) {
+    if (f->future != NULL) {
         fdb_future_destroy(f->future);
     }
 
-    if(f->msg_env != NULL) {
+    if (f->msg_env != NULL) {
         enif_free_env(f->msg_env);
     }
 
-    if(f->lock != NULL) {
+    if (f->lock != NULL) {
         enif_mutex_destroy(f->lock);
     }
 }
 
+void erlfdb_database_dtor(ErlNifEnv *env, void *obj) {
+    ErlFDBDatabase *d = (ErlFDBDatabase *)obj;
 
-void
-erlfdb_database_dtor(ErlNifEnv* env, void* obj)
-{
-    ErlFDBDatabase* d = (ErlFDBDatabase*) obj;
-
-    if(d->database != NULL) {
+    if (d->database != NULL) {
         fdb_database_destroy(d->database);
     }
 }
 
+void erlfdb_tenant_dtor(ErlNifEnv *env, void *obj) {
+    ErlFDBTenant *ten = (ErlFDBTenant *)obj;
 
-void
-erlfdb_tenant_dtor(ErlNifEnv* env, void* obj)
-{
-    ErlFDBTenant* ten = (ErlFDBTenant*) obj;
-
-    if(ten->tenant != NULL) {
+    if (ten->tenant != NULL) {
         fdb_tenant_destroy(ten->tenant);
     }
 }
 
+void erlfdb_transaction_dtor(ErlNifEnv *env, void *obj) {
+    ErlFDBTransaction *t = (ErlFDBTransaction *)obj;
 
-void
-erlfdb_transaction_dtor(ErlNifEnv* env, void* obj)
-{
-    ErlFDBTransaction* t = (ErlFDBTransaction*) obj;
-
-    if(t->transaction != NULL) {
+    if (t->transaction != NULL) {
         fdb_transaction_destroy(t->transaction);
     }
 }
 
-
-int
-erlfdb_transaction_is_owner(ErlNifEnv* env, ErlFDBTransaction* t)
-{
+int erlfdb_transaction_is_owner(ErlNifEnv *env, ErlFDBTransaction *t) {
     ErlNifPid pid;
     ERL_NIF_TERM self;
 
