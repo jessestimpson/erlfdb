@@ -803,7 +803,7 @@ fold_range_int(Tx, ?IS_FOLD_FUTURE = FI, Fun, Acc) ->
         not Recurse ->
             NewAcc;
         true ->
-            LastKey = element(1, lists:last(Rows)),
+            LastKey = fold_range_last_key_int(Rows, St),
             {NewStartKey, NewEndKey} =
                 case Reverse /= 0 of
                     true ->
@@ -823,6 +823,12 @@ fold_range_int(Tx, ?IS_FOLD_FUTURE = FI, Fun, Acc) ->
             },
             fold_range_int(Tx, NewSt, Fun, NewAcc)
     end.
+
+-spec fold_range_last_key_int(list(), #fold_st{}) -> key().
+fold_range_last_key_int(Rows, #fold_st{mapper = undefined}) ->
+    element(1, lists:last(Rows));
+fold_range_last_key_int(Rows, #fold_st{mapper = _Mapper}) ->
+    element(1, element(1, lists:last(Rows))).
 
 -spec fold_range_future_int(transaction(), #fold_st{}) -> fold_future().
 fold_range_future_int(?IS_TX = Tx, #fold_st{mapper = undefined} = St) ->

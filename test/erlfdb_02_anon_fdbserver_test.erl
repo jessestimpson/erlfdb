@@ -121,6 +121,25 @@ get_mapped_range_minimal_test() ->
         [{{<<"a">>, <<1, $b, 0>>}, {<<1, $b, 0>>, <<1, $b, 1>>}, [{<<1, $b, 0>>, <<"c">>}]}], Result
     ).
 
+get_mapped_range_continuation_test() ->
+    N = 100,
+    Db = erlfdb_util:get_test_db(),
+    Tenant = erlfdb_util:create_and_open_test_tenant(Db, []),
+    erlfdb:transactional(Tenant, fun(Tx) ->
+        [
+            begin
+                erlfdb:set(Tx, erlfdb_tuple:pack({<<"a">>, X}), erlfdb_tuple:pack({<<"b">>, X})),
+                erlfdb:set(Tx, erlfdb_tuple:pack({<<"b">>, X}), erlfdb_tuple:pack({<<"c">>, X}))
+            end
+         || X <- lists:seq(1, N)
+        ]
+    end),
+    Result = erlfdb:transactional(Tenant, fun(Tx) ->
+        {Begin, End} = erlfdb_tuple:range({<<"a">>}),
+        erlfdb:get_mapped_range(Tx, Begin, End, {<<"{V[0]}">>, <<"{...}">>})
+    end),
+    ?assertEqual(N, length(Result)).
+
 get_set_get(DbOrTenant) ->
     Key = gen_key(8),
     Val = crypto:strong_rand_bytes(8),
