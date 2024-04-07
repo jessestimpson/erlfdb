@@ -1,5 +1,4 @@
-An Erlang Binding to FoundationDB
-===
+# An Erlang Binding to FoundationDB
 
 [![CI](https://github.com/foundationdb-beam/erlfdb/actions/workflows/ci.yml/badge.svg)](https://github.com/foundationdb-beam/erlfdb/actions/workflows/ci.yml)
 
@@ -13,10 +12,10 @@ This project also provides a conforming implementation of the [Tuple] and
 [Tuple]: https://github.com/apple/foundationdb/blob/master/design/tuple.md
 [Directory]: https://apple.github.io/foundationdb/developer-guide.html#directories
 
-The original development of this project occurred as [apache/couchdb-erlfdb](https://github.com/apache/couchdb-erlfdb).
+The original development of this project occurred as [apache/couchdb-erlfdb](https://github.com/apache/couchdb-erlfdb). This fork
+was created in early 2024 to continue development of the project.
 
-Building
----
+## Building
 
 Assuming you have installed the FoundationDB C API library, building erlfdb
 is as simple as:
@@ -25,16 +24,13 @@ is as simple as:
 
 Alternatively, adding erlfdb as a rebar dependency should Just Work ®.
 
-
 Documentation for installing FoundationDB can be found [here for macOS]
 or [here for Linux].
 
 [here for macOS]: https://apple.github.io/foundationdb/getting-started-mac.html
 [here for Linux]: https://apple.github.io/foundationdb/getting-started-linux.html
 
-
-Quick Example
----
+## Quick Example
 
 A simple example showing how to open a database and read and write keys:
 
@@ -51,8 +47,7 @@ ok
 not_found
 ```
 
-Binding Tester
----
+## Binding Tester
 
 FoundationDB has a custom binding tester that can be used to test whether
 changes have broken compatibility. See the [BINDING_TESTER](BINDING_TESTER.md)
