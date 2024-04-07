@@ -12,11 +12,11 @@
 
 {application, erlfdb, [
     {description, "Erlang client for FoundationDB"},
-    {vsn, "0.0.0"},
+    {vsn, "0.1.0"},
     {registered, []},
     {applications, [kernel, stdlib]},
-    {maintainers, ["Paul J. Davis"]},
-    {links, [{"GitHub", "https://github.com/cloudant-labs/couchdb-erlfdb"}]},
+    {maintainers, ["Jesse Stimpson"]},
+    {links, [{"GitHub", "https://github.com/foundationdb-beam/erlfdb"}]},
     {env, [
         {api_version, 730},
         {network_options, []}
