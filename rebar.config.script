@@ -1,3 +1,5 @@
+FDBReleasesBaseUrl = "https://api.github.com/repos/apple/foundationdb/releases".
+
 % Hacky means to extract API version from fdbcli protocol version output
 % See https://github.com/apple/foundationdb/blob/master/flow/ProtocolVersion.h
 MaxAPIVersion =
@@ -13,51 +15,225 @@ MaxAPIVersion =
         end
     end.
 
+IsArch = fun(ArchRe) -> match =:= re:run(rebar_api:get_arch(), ArchRe, [{capture, none}]) end.
+
+GetJson = fun(Url) ->
+    case code:ensure_loaded(json) of
+        {module, _} ->
+            rebar_api:info("[get] ~s", [Url]),
+            case httpc:request(get, {Url, [{"User-Agent", "rebar3 erlfdb"}]}, [], []) of
+                {ok, {{"HTTP/1.1", 200, "OK"}, _, Body}} ->
+                    {ok, json:decode(iolist_to_binary(Body))};
+                _ ->
+                    {error, "HTTP GET Failed"}
+            end;
+        {error, _} ->
+            {error, "Minimum OTP 27 required for release auto-detection"}
+    end
+end.
+
+GetLatestRelease = fun() ->
+    case GetJson(FDBReleasesBaseUrl ++ "/latest") of
+        {ok, #{<<"tag_name">> := LatestTag}} ->
+            case
+                re:run(LatestTag, "(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)", [
+                    {capture, [major, minor, patch], list}
+                ])
+            of
+                {match, Matches} ->
+                    {ok, [list_to_integer(X) || X <- Matches]};
+                _ ->
+                    {error, "Failed to parse FoundationDB version"}
+            end;
+        Error ->
+            Error
+    end
+end.
+
+GetAssetByNameRe = fun(NameRe, Assets) ->
+    case
+        lists:filter(
+            fun(#{<<"name">> := Name}) ->
+                match =:= re:run(Name, NameRe, [{capture, none}])
+            end,
+            Assets
+        )
+    of
+        [Asset | _] -> Asset;
+        _ -> undefined
+    end
+end.
+
+GetSupportedAssets = fun(Assets) ->
+    [
+        {"(aarch64-apple-darwin)", #{
+            server => GetAssetByNameRe("^FoundationDB.*arm64\\.pkg$", Assets),
+            clients => undefined
+        }},
+        {"(x86_64-.*-linux)", #{
+            server => GetAssetByNameRe("^foundationdb-server.*amd64\\.deb$", Assets),
+            clients => GetAssetByNameRe("^foundationdb-clients.*amd64\\.deb$", Assets)
+        }}
+    ]
+end.
+
+GetLatestNonAVXAssets = fun() ->
+    % AVX releases have odd patch numbers, so we make sure we have the even one
+    % If you want the AVX release, please install it manually.
+    RVsn =
+        case GetLatestRelease() of
+            {ok, [Major, Minor, Patch]} when Patch rem 2 == 1 ->
+                {ok, [Major, Minor, Patch - 1]};
+            Res ->
+                Res
+        end,
+
+    case RVsn of
+        {ok, Vsn = [_, _, _]} ->
+            Url = lists:flatten([FDBReleasesBaseUrl ++ "/tags/", io_lib:format("~p.~p.~p", Vsn)]),
+            case GetJson(Url) of
+                {ok, #{<<"assets">> := Assets}} ->
+                    SupportedAssets = GetSupportedAssets(Assets),
+                    case
+                        lists:filter(fun({ArchRe, Assets}) -> IsArch(ArchRe) end, SupportedAssets)
+                    of
+                        [{_, AssetsMap} | _] ->
+                            {ok, AssetsMap};
+                        [] ->
+                            {error, unsupported_arch}
+                    end;
+                Error ->
+                    Error
+            end;
+        Error ->
+            Error
+    end
+end.
+
+LogAssetsMap = fun
+    LL(#{server := ServerAsset, clients := undefined}) ->
+        rebar_api:info(
+            "For both the `foundationdb-server' and `foundationdb-clients' packages, download and install~n~n        ~ts~n",
+            [maps:get(<<"browser_download_url">>, ServerAsset)]
+        );
+    LL(#{server := ServerAsset, clients := ClientsAsset}) ->
+        rebar_api:info(
+            "For the `foundationdb-server' package, download and install~n~n        ~ts~n", [
+                maps:get(<<"browser_download_url">>, ServerAsset)
+            ]
+        ),
+        rebar_api:info(
+            "For the `foundationdb-clients' package, download and install~n~n        ~ts~n", [
+                maps:get(<<"browser_download_url">>, ClientsAsset)
+            ]
+        )
+end.
+
+AssertFdbCli = "0" =/= os:getenv("ERLFDB_ASSERT_FDBCLI").
+
+case MaxAPIVersion of
+    undefined ->
+        {ok, _} = application:ensure_all_started(inets),
+        case application:ensure_all_started(ssl) of
+            {ok, _} ->
+                case GetLatestNonAVXAssets() of
+                    {ok, AssetsMap} ->
+                        LogAssetsMap(AssetsMap),
+                        ErrorFun =
+                            if
+                                AssertFdbCli -> abort;
+                                true -> info
+                            end,
+                        rebar_api:ErrorFun(
+                            "The `foundationdb-clients' package is required to compile erlfdb. See download link above.",
+                            []
+                        );
+                    {error, Reason} ->
+                        ErrorFun =
+                            if
+                                AssertFdbCli -> error;
+                                true -> info
+                            end,
+                        rebar_api:ErrorFun(
+                            "The `foundationdb-clients' package is required to compile erlfdb. We're unable to detect the latest FoundationDB release. Please visit `https://github.com/apple/foundationdb/releases~~n~n        Error: ~p.",
+                            [Reason]
+                        )
+                end;
+            {error, Reason} ->
+                ErrorFun =
+                    if
+                        AssertFdbCli -> error;
+                        true -> info
+                    end,
+                rebar_api:ErrorFun(
+                    "The `foundationdb-clients' package is required to compile erlfdb. We're unable to detect the latest FoundationDB release. Please visit `https://github.com/apple/foundationdb/releases~~n~n        Error: ~p.",
+                    [Reason]
+                )
+        end;
+    _ ->
+        ok
+end.
+
 % https://github.com/markusn/coveralls-erl#example-usage-rebar3-and-github-actions
 CoverallConfig =
     case {os:getenv("GITHUB_ACTIONS"), os:getenv("GITHUB_TOKEN")} of
         {"true", Token} when is_list(Token) ->
-        CONFIG1 = [{coveralls_repo_token, Token},
-                    {coveralls_service_job_id, os:getenv("GITHUB_RUN_ID")},
-                    {coveralls_service_number, os:getenv("GITHUB_RUN_NUMBER")},
-                    {coveralls_commit_sha, os:getenv("GITHUB_SHA")},
-                    {coveralls_flag_name, os:getenv("COVERALLS_FLAG_NAME")} | CONFIG],
-        case os:getenv("GITHUB_EVENT_NAME") =:= "pull_request"
-            andalso string:tokens(os:getenv("GITHUB_REF"), "/") of
-            [_, "pull", PRNO, _] ->
-                [{coveralls_service_pull_request, PRNO} | CONFIG1];
-            _ ->
-                CONFIG1
-        end;
+            CONFIG1 = [
+                {coveralls_repo_token, Token},
+                {coveralls_service_job_id, os:getenv("GITHUB_RUN_ID")},
+                {coveralls_service_number, os:getenv("GITHUB_RUN_NUMBER")},
+                {coveralls_commit_sha, os:getenv("GITHUB_SHA")},
+                {coveralls_flag_name, os:getenv("COVERALLS_FLAG_NAME")}
+                | CONFIG
+            ],
+            case
+                os:getenv("GITHUB_EVENT_NAME") =:= "pull_request" andalso
+                    string:tokens(os:getenv("GITHUB_REF"), "/")
+            of
+                [_, "pull", PRNO, _] ->
+                    [{coveralls_service_pull_request, PRNO} | CONFIG1];
+                _ ->
+                    CONFIG1
+            end;
         _ ->
-        CONFIG
+            CONFIG
     end.
 
-[{port_env, [
-    {
-        "(linux|solaris|freebsd|netbsd|openbsd|dragonfly|darwin|gnu)",
-        "CFLAGS",
-        "$CFLAGS -I/usr/local/include -Ic_src/ -g -Wall -Werror " ++ (case MaxAPIVersion of undefined -> ""; _ -> "-DFDB_API_VERSION=" ++ MaxAPIVersion end)
-    },
-    {
-        "win32",
-        "CFLAGS",
-        "$CFLAGS /I\"c:/Program Files/foundationdb/include\" /O2 /DNDEBUG " ++ (case MaxAPIVersion of undefined -> ""; _ -> "/DFDB_API_VERSION=" ++ MaxAPIVersion end)
-    },
+[
+    {port_env, [
+        {
+            "(linux|solaris|freebsd|netbsd|openbsd|dragonfly|darwin|gnu)",
+            "CFLAGS",
+            "$CFLAGS -I/usr/local/include -Ic_src/ -g -Wall -Werror " ++
+                (case MaxAPIVersion of
+                    undefined -> "";
+                    _ -> "-DFDB_API_VERSION=" ++ MaxAPIVersion
+                end)
+        },
+        {
+            "win32",
+            "CFLAGS",
+            "$CFLAGS /I\"c:/Program Files/foundationdb/include\" /O2 /DNDEBUG " ++
+                (case MaxAPIVersion of
+                    undefined -> "";
+                    _ -> "/DFDB_API_VERSION=" ++ MaxAPIVersion
+                end)
+        },
 
-    {
-        "(linux|solaris|freebsd|netbsd|openbsd|dragonfly|gnu)",
-        "LDFLAGS",
-        "$LDFLAGS -L/usr/local/lib -lfdb_c"
-    },
-    {
-        "(darwin)",
-        "LDFLAGS",
-        "$LDFLAGS -rpath /usr/local/lib -L/usr/local/lib -lfdb_c"
-    },
-    {
-        "win32",
-        "LDFLAGS",
-        "$LDFLAGS /LIBPATH:\"c:/Program Files/foundationdb/lib/foundationdb\" fdb_c.lib"
-    }
-]}] ++ CoverallConfig.
+        {
+            "(linux|solaris|freebsd|netbsd|openbsd|dragonfly|gnu)",
+            "LDFLAGS",
+            "$LDFLAGS -L/usr/local/lib -lfdb_c"
+        },
+        {
+            "(darwin)",
+            "LDFLAGS",
+            "$LDFLAGS -rpath /usr/local/lib -L/usr/local/lib -lfdb_c"
+        },
+        {
+            "win32",
+            "LDFLAGS",
+            "$LDFLAGS /LIBPATH:\"c:/Program Files/foundationdb/lib/foundationdb\" fdb_c.lib"
+        }
+    ]}
+] ++ CoverallConfig.

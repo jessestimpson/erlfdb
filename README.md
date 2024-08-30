@@ -30,6 +30,18 @@ or [here for Linux].
 [here for macOS]: https://apple.github.io/foundationdb/getting-started-mac.html
 [here for Linux]: https://apple.github.io/foundationdb/getting-started-linux.html
 
+### Bypassing dependency checks
+
+When you execute a rebar command, erlfdb attempts to detect the version of the fdbcli
+installed on your system. If it cannot be detected, the rebar command is aborted.
+
+To disable the abort, use `ERLFDB_ASSERT_FDBCLI=0`. For example, you can safely use
+this for the `fmt` command, which does not do a compile action.
+
+```bash
+ERLFDB_ASSERT_FDBCLI=0 rebar3 fmt
+```
+
 ## Quick Example
 
 A simple example showing how to open a database and read and write keys:
