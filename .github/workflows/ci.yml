@@ -14,7 +14,7 @@ jobs:
     name: fmt / OTP ${{matrix.otp}}
     strategy:
       matrix:
-        otp: ["25"]
+        otp: ["25", "27.0.1"]
     steps:
       - uses: actions/checkout@v4
       - uses: erlef/setup-beam@v1
@@ -33,8 +33,8 @@ jobs:
     name: dialyzer / OTP ${{matrix.otp}} / FDB ${{matrix.fdb}}
     strategy:
       matrix:
-        otp: ["25"]
-        fdb: ["7.3.32"]
+        otp: ["25", "27.0.1"]
+        fdb: ["7.2.2", "7.3.42"]
     env:
       FDB_VERSION: ${{ matrix.fdb }}
     steps:
@@ -56,8 +56,8 @@ jobs:
     name: eunit / OTP ${{matrix.otp}} / FDB ${{matrix.fdb}}
     strategy:
       matrix:
-        otp: ["25"]
-        fdb: ["7.3.32"]
+        otp: ["25", "27.0.1"]
+        fdb: ["7.2.2", "7.3.42"]
     env:
       FDB_VERSION: ${{ matrix.fdb }}
     steps:

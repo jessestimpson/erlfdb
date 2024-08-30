@@ -287,13 +287,23 @@ init_fdb_db(ClusterFile, Options) ->
             DefaultFDBCli -> "fdbcli";
             FDBCli0 -> FDBCli0
         end,
+    Storage = get_storage(),
     Fmt =
-        "~s -C ~s --exec \"configure new single ssd-redwood-1 tenant_mode=optional_experimental\"",
-    Cmd = lists:flatten(io_lib:format(Fmt, [FDBCli, ClusterFile])),
+        "~s -C ~s --exec \"configure new single ~s tenant_mode=optional_experimental\"",
+    Cmd = lists:flatten(io_lib:format(Fmt, [FDBCli, ClusterFile, Storage])),
     case os:cmd(Cmd) of
         "Database created" ++ _ -> ok;
         "ERROR: Database already exists!" ++ _ -> ok;
         Msg -> erlang:error({fdb_init_error, Msg})
+    end.
+
+get_storage() ->
+    Vsn = erlfdb_nif:get_max_api_version(),
+    if
+        Vsn >= 730 ->
+            "ssd-redwood-1";
+        true ->
+            "ssd"
     end.
 
 port_loop(FDBServer, Monitor) ->

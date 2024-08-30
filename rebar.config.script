@@ -199,7 +199,12 @@ CoverallConfig =
             CONFIG
     end.
 
+ErlOpts = proplists:get_value(erl_opts, CONFIG, []).
+
 [
+    {erl_opts,
+        ErlOpts ++ [{d, erlfdb_api_version, MaxAPIVersion}]
+    },
     {port_env, [
         {
             "(linux|solaris|freebsd|netbsd|openbsd|dragonfly|darwin|gnu)",

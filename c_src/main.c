@@ -1439,6 +1439,7 @@ static ERL_NIF_TERM erlfdb_transaction_get_range(ErlNifEnv *env, int argc,
     return erlfdb_create_future(env, future, ErlFDB_FT_KEYVALUE_ARRAY);
 }
 
+#if FDB_API_VERSION >= 730
 static ERL_NIF_TERM
 erlfdb_transaction_get_mapped_range(ErlNifEnv *env, int argc,
                                     const ERL_NIF_TERM argv[]) {
@@ -1540,6 +1541,13 @@ erlfdb_transaction_get_mapped_range(ErlNifEnv *env, int argc,
 
     return erlfdb_create_future(env, future, ErlFDB_FT_MAPPEDKEYVALUE_ARRAY);
 }
+#else
+static ERL_NIF_TERM
+erlfdb_transaction_get_mapped_range(ErlNifEnv *env, int argc,
+                                    const ERL_NIF_TERM argv[]) {
+    return enif_make_badarg(env);
+}
+#endif
 
 static ERL_NIF_TERM erlfdb_transaction_set(ErlNifEnv *env, int argc,
                                            const ERL_NIF_TERM argv[]) {
