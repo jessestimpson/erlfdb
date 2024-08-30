@@ -9,7 +9,7 @@ MaxAPIVersion =
             {match, [ProtocolStr]} ->
                 ProtocolVsn = list_to_integer(ProtocolStr, 16),
                 APIVersionBytes = (ProtocolVsn band 16#0000000FFF00000) bsr 20,
-                integer_to_list(APIVersionBytes, 16);
+                list_to_integer(integer_to_list(APIVersionBytes, 16));
             nomatch ->
                 undefined
         end
@@ -205,18 +205,20 @@ CoverallConfig =
             "(linux|solaris|freebsd|netbsd|openbsd|dragonfly|darwin|gnu)",
             "CFLAGS",
             "$CFLAGS -I/usr/local/include -Ic_src/ -g -Wall -Werror " ++
-                (case MaxAPIVersion of
-                    undefined -> "";
-                    _ -> "-DFDB_API_VERSION=" ++ MaxAPIVersion
+                (if MaxAPIVersion < 730 ->
+                        "-DFDB_API_VERSION=" ++ integer_to_list(MaxAPIVersion);
+                    true ->
+                        "-DFDB_USE_LATEST_API_VERSION=1"
                 end)
         },
         {
             "win32",
             "CFLAGS",
             "$CFLAGS /I\"c:/Program Files/foundationdb/include\" /O2 /DNDEBUG " ++
-                (case MaxAPIVersion of
-                    undefined -> "";
-                    _ -> "/DFDB_API_VERSION=" ++ MaxAPIVersion
+                (if MaxAPIVersion < 730 ->
+                        "-DFDB_API_VERSION=" ++ integer_to_list(MaxAPIVersion);
+                    true ->
+                        "-DFDB_USE_LATEST_API_VERSION=1"
                 end)
         },
 
