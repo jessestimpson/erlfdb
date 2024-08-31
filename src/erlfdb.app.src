@@ -19,7 +19,6 @@
     {links, [{"GitHub", "https://github.com/foundationdb-beam/erlfdb"}]},
     {licenses, ["Apache-2.0"]},
     {env, [
-        {api_version, 730},
         {network_options, []}
     ]}
 ]}.

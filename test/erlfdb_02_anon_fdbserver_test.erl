@@ -91,54 +91,83 @@ get_range_test() ->
         erlfdb:set(Tx, MsgKey, <<"hello world">>)
     end),
 
-    Result = erlfdb:transactional(Tenant, fun(Tx) ->
-        MStartKey = erlfdb_tuple:pack({<<"get_range_test">>, 1}),
-        MEndKey = erlfdb_key:strinc(MStartKey),
+    Vsn = erlfdb_nif:get_max_api_version(),
 
-        Mapper = {<<"get_range_test">>, <<"{V[1]}">>, <<"{...}">>},
-        [{{_PKey, _PValue}, {_SKeyBegin, _SKeyEnd}, [{_Key, Message}]}] = erlfdb:wait(
-            erlfdb:get_mapped_range(Tx, MStartKey, MEndKey, Mapper)
-        ),
-        Message
-    end),
+    if
+        Vsn >= 730 ->
+            Result = erlfdb:transactional(Tenant, fun(Tx) ->
+                MStartKey = erlfdb_tuple:pack({<<"get_range_test">>, 1}),
+                MEndKey = erlfdb_key:strinc(MStartKey),
 
-    ?assertEqual(<<"hello world">>, Result).
+                Mapper = {<<"get_range_test">>, <<"{V[1]}">>, <<"{...}">>},
+                [{{_PKey, _PValue}, {_SKeyBegin, _SKeyEnd}, [{_Key, Message}]}] = erlfdb:wait(
+                    erlfdb:get_mapped_range(Tx, MStartKey, MEndKey, Mapper)
+                ),
+                Message
+            end),
+
+            ?assertEqual(<<"hello world">>, Result);
+        true ->
+            ok
+    end.
 
 % get_mapped_range requires the use of tuples in the keys/values so that the
 % element selector syntax can be used. This test demonstrates the minimal set
 % of keys necessary to exercise the feature.
 get_mapped_range_minimal_test() ->
-    Db = erlfdb_util:get_test_db(),
-    Tenant = erlfdb_util:create_and_open_test_tenant(Db, []),
-    erlfdb:transactional(Tenant, fun(Tx) ->
-        erlfdb:set(Tx, <<"a">>, erlfdb_tuple:pack({<<"b">>})),
-        erlfdb:set(Tx, erlfdb_tuple:pack({<<"b">>}), <<"c">>)
-    end),
-    Result = erlfdb:transactional(Tenant, fun(Tx) ->
-        erlfdb:get_mapped_range(Tx, <<"a">>, <<"b">>, {<<"{V[0]}">>, <<"{...}">>})
-    end),
-    ?assertEqual(
-        [{{<<"a">>, <<1, $b, 0>>}, {<<1, $b, 0>>, <<1, $b, 1>>}, [{<<1, $b, 0>>, <<"c">>}]}], Result
-    ).
+    Vsn = erlfdb_nif:get_max_api_version(),
+
+    if
+        Vsn >= 730 ->
+            Db = erlfdb_util:get_test_db(),
+            Tenant = erlfdb_util:create_and_open_test_tenant(Db, []),
+            erlfdb:transactional(Tenant, fun(Tx) ->
+                erlfdb:set(Tx, <<"a">>, erlfdb_tuple:pack({<<"b">>})),
+                erlfdb:set(Tx, erlfdb_tuple:pack({<<"b">>}), <<"c">>)
+            end),
+            Result = erlfdb:transactional(Tenant, fun(Tx) ->
+                erlfdb:get_mapped_range(Tx, <<"a">>, <<"b">>, {<<"{V[0]}">>, <<"{...}">>})
+            end),
+            ?assertEqual(
+                [
+                    {{<<"a">>, <<1, $b, 0>>}, {<<1, $b, 0>>, <<1, $b, 1>>}, [
+                        {<<1, $b, 0>>, <<"c">>}
+                    ]}
+                ],
+                Result
+            );
+        true ->
+            ok
+    end.
 
 get_mapped_range_continuation_test() ->
-    N = 100,
-    Db = erlfdb_util:get_test_db(),
-    Tenant = erlfdb_util:create_and_open_test_tenant(Db, []),
-    erlfdb:transactional(Tenant, fun(Tx) ->
-        [
-            begin
-                erlfdb:set(Tx, erlfdb_tuple:pack({<<"a">>, X}), erlfdb_tuple:pack({<<"b">>, X})),
-                erlfdb:set(Tx, erlfdb_tuple:pack({<<"b">>, X}), erlfdb_tuple:pack({<<"c">>, X}))
-            end
-         || X <- lists:seq(1, N)
-        ]
-    end),
-    Result = erlfdb:transactional(Tenant, fun(Tx) ->
-        {Begin, End} = erlfdb_tuple:range({<<"a">>}),
-        erlfdb:get_mapped_range(Tx, Begin, End, {<<"{V[0]}">>, <<"{...}">>})
-    end),
-    ?assertEqual(N, length(Result)).
+    Vsn = erlfdb_nif:get_max_api_version(),
+    if
+        Vsn >= 730 ->
+            N = 100,
+            Db = erlfdb_util:get_test_db(),
+            Tenant = erlfdb_util:create_and_open_test_tenant(Db, []),
+            erlfdb:transactional(Tenant, fun(Tx) ->
+                [
+                    begin
+                        erlfdb:set(
+                            Tx, erlfdb_tuple:pack({<<"a">>, X}), erlfdb_tuple:pack({<<"b">>, X})
+                        ),
+                        erlfdb:set(
+                            Tx, erlfdb_tuple:pack({<<"b">>, X}), erlfdb_tuple:pack({<<"c">>, X})
+                        )
+                    end
+                 || X <- lists:seq(1, N)
+                ]
+            end),
+            Result = erlfdb:transactional(Tenant, fun(Tx) ->
+                {Begin, End} = erlfdb_tuple:range({<<"a">>}),
+                erlfdb:get_mapped_range(Tx, Begin, End, {<<"{V[0]}">>, <<"{...}">>})
+            end),
+            ?assertEqual(N, length(Result));
+        true ->
+            ok
+    end.
 
 get_set_get(DbOrTenant) ->
     Key = gen_key(8),

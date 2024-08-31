@@ -65,7 +65,11 @@
     error_predicate/2
 ]).
 
+-ifdef(erlfdb_api_version).
+-define(DEFAULT_API_VERSION, ?erlfdb_api_version).
+-else.
 -define(DEFAULT_API_VERSION, 730).
+-endif.
 
 -export_type([
     atomic_mode/0,
