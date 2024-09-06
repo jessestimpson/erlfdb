@@ -20,7 +20,9 @@
     first_greater_than/1,
     first_greater_or_equal/1,
 
-    strinc/1
+    strinc/1,
+
+    list_to_ranges/1
 ]).
 
 to_selector(<<_/binary>> = Key) ->
@@ -59,3 +61,13 @@ rstrip_ff(Key) ->
         16#FF -> rstrip_ff(binary:part(Key, {0, KeyLen - 1}));
         _ -> Key
     end.
+
+list_to_ranges(Array) when length(Array) < 2 ->
+    erlang:error(badarg);
+list_to_ranges(Array) ->
+    list_to_ranges(Array, []).
+
+list_to_ranges([_EK], Acc) ->
+    lists:reverse(Acc);
+list_to_ranges([SK, EK | T], Acc) ->
+    list_to_ranges([EK | T], [{SK, EK} | Acc]).
