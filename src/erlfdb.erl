@@ -48,6 +48,9 @@
     wait_for_all/1,
     wait_for_all/2,
 
+    wait_for_all_interleaving/2,
+    wait_for_all_interleaving/3,
+
     % Data retrieval
     get/2,
     get_ss/2,
@@ -64,10 +67,13 @@
     get_mapped_range/4,
     get_mapped_range/5,
 
+    get_range_split_points/4,
+
     fold_range/5,
     fold_range/6,
 
     fold_range_future/4,
+    fold_mapped_range_future/4,
     fold_range_wait/4,
 
     % Data modifications
@@ -144,6 +150,8 @@
     future/0,
     key/0,
     key_selector/0,
+    kv/0,
+    mapped_kv/0,
     mapper/0,
     result/0,
     snapshot/0,
@@ -157,7 +165,7 @@
 ]).
 
 -define(IS_FUTURE, {erlfdb_future, _, _}).
--define(IS_FOLD_FUTURE, {fold_info, _, _}).
+-define(IS_FOLD_FUTURE, {fold_future, _, _}).
 -define(IS_DB, {erlfdb_database, _}).
 -define(IS_TENANT, {erlfdb_tenant, _}).
 -define(IS_TX, {erlfdb_transaction, _}).
@@ -174,7 +182,14 @@
     streaming_mode,
     iteration,
     snapshot,
-    reverse
+    reverse,
+    from,
+    idx
+}).
+
+-record(fold_future, {
+    st,
+    future
 }).
 
 -type atomic_mode() :: erlfdb_nif:atomic_mode().
@@ -184,7 +199,7 @@
 -type database_option() :: erlfdb_nif:database_option().
 -type error() :: erlfdb_nif:error().
 -type error_predicate() :: erlfdb_nif:error_predicate().
--type fold_future() :: {fold_info, #fold_st{}, future()}.
+-type fold_future() :: #fold_future{}.
 -type fold_option() ::
     {reverse, boolean() | integer()}
     | {limit, non_neg_integer()}
@@ -192,11 +207,16 @@
     | {streaming_mode, atom()}
     | {iteration, pos_integer()}
     | {snapshot, boolean()}
-    | {mapper, binary()}.
+    | {mapper, binary()}
+    | {wait, true | false | interleaving}.
+-type split_option() ::
+    {chunk_size, non_neg_integer()}.
 -type future() :: erlfdb_nif:future().
 -type key() :: erlfdb_nif:key().
+-type kv() :: {key(), value()}.
 -type key_selector() :: erlfdb_nif:key_selector().
 -type result() :: erlfdb_nif:future_result().
+-type mapped_kv() :: {kv(), {key(), key()}, list(kv())}.
 -type mapper() :: tuple().
 -type snapshot() :: {erlfdb_snapshot, transaction()}.
 -type tenant() :: erlfdb_nif:tenant().
@@ -205,7 +225,7 @@
 -type transaction_option() :: erlfdb_nif:transaction_option().
 -type value() :: erlfdb_nif:value().
 -type version() :: erlfdb_nif:version().
--type wait_option() :: {timeout, non_neg_integer() | infinity}.
+-type wait_option() :: {timeout, non_neg_integer() | infinity} | {with_index, boolean()}.
 
 -spec open() -> database().
 open() ->
@@ -276,7 +296,7 @@ cancel(?IS_TX = Tx) ->
 
 -spec cancel(fold_future() | future(), [{flush, boolean()}] | []) -> ok.
 cancel(?IS_FOLD_FUTURE = FoldInfo, Options) ->
-    {fold_info, _St, Future} = FoldInfo,
+    #fold_future{future = Future} = FoldInfo,
     cancel(Future, Options);
 cancel(?IS_FUTURE = Future, Options) ->
     ok = erlfdb_nif:future_cancel(Future),
@@ -293,7 +313,7 @@ is_ready(?IS_FUTURE = Future) ->
 get_error(?IS_FUTURE = Future) ->
     erlfdb_nif:future_get_error(Future).
 
--spec get(future()) -> any().
+-spec get(future()) -> result().
 get(?IS_FUTURE = Future) ->
     erlfdb_nif:future_get(Future).
 
@@ -310,7 +330,7 @@ wait(?IS_FUTURE = Future) ->
 wait(Ready) ->
     Ready.
 
--spec wait(future() | any(), [wait_option()]) -> any().
+-spec wait(future() | result(), [wait_option()]) -> result().
 wait(?IS_FUTURE = Future, Options) ->
     case is_ready(Future) of
         true ->
@@ -330,15 +350,15 @@ wait(?IS_FUTURE = Future, Options) ->
 wait(Ready, _) ->
     Ready.
 
--spec wait_for_any([future()]) -> any().
+-spec wait_for_any([future()]) -> future().
 wait_for_any(Futures) ->
     wait_for_any(Futures, []).
 
--spec wait_for_any([future()], [wait_option()]) -> any().
+-spec wait_for_any([future()], [wait_option()]) -> future().
 wait_for_any(Futures, Options) ->
     wait_for_any(Futures, Options, []).
 
--spec wait_for_any([future()], [wait_option()], list()) -> any().
+-spec wait_for_any([future()], [wait_option()], list()) -> future().
 wait_for_any(Futures, Options, ResendQ) ->
     Timeout = erlfdb_util:get(Options, timeout, infinity),
     receive
@@ -365,11 +385,11 @@ wait_for_any(Futures, Options, ResendQ) ->
         erlang:error({timeout, Futures})
     end.
 
--spec wait_for_all([future()]) -> list().
+-spec wait_for_all([future() | result()]) -> list(result()).
 wait_for_all(Futures) ->
     wait_for_all(Futures, []).
 
--spec wait_for_all([future()], [wait_option()]) -> list().
+-spec wait_for_all([future() | result()], [wait_option()]) -> list(result()).
 wait_for_all(Futures, Options) ->
     % Same as wait for all. We might want to
     % handle timeouts here so we have a single
@@ -381,7 +401,51 @@ wait_for_all(Futures, Options) ->
         Futures
     ).
 
--spec get(database() | transaction() | snapshot(), key()) -> future().
+-spec wait_for_all_interleaving(transaction() | snapshot(), [fold_future() | future()]) ->
+    list().
+wait_for_all_interleaving(Tx, Futures) ->
+    wait_for_all_interleaving(Tx, Futures, []).
+
+-spec wait_for_all_interleaving(transaction() | snapshot(), [fold_future() | future()], [
+    wait_option()
+]) ->
+    list().
+wait_for_all_interleaving(Tx, Futures, Options) ->
+    % Our fold function uses the indices in the fold_st to accumulate results into the tuple accumulator.
+    % The 'get_range's will accumulate the list results, and 'get's will be singlular values.
+    Fun = fun
+        ({X, Idx}, AccTuple) when is_list(X) ->
+            setelement(Idx, AccTuple, [X | element(Idx, AccTuple)]);
+        ({X, Idx}, AccTuple) ->
+            setelement(Idx, AccTuple, X)
+    end,
+    Acc = list_to_tuple(lists:duplicate(length(Futures), [])),
+
+    % 'fold_st's are created where they don't already exist (e.g. from a 'get').
+    % All are tagged with an index.
+    FFs = lists:map(
+        fun
+            ({?IS_FOLD_FUTURE = FF = #fold_future{st = St}, Idx}) ->
+                FF#fold_future{st = St#fold_st{idx = Idx}};
+            ({Future, Idx}) ->
+                #fold_future{future = Future, st = #fold_st{from = Future, idx = Idx}}
+        end,
+        lists:zip(Futures, lists:seq(1, length(Futures)))
+    ),
+
+    Result = wait_and_apply(
+        Tx, FFs, Fun, Acc, lists:keystore(with_index, 1, Options, {with_index, true})
+    ),
+
+    lists:map(
+        fun
+            (R) when is_list(R) -> lists:flatten(lists:reverse(R));
+            (R) -> R
+        end,
+        tuple_to_list(Result)
+    ).
+
+-spec get(database() | transaction() | snapshot(), key()) -> future() | result().
 get(?IS_DB = Db, Key) ->
     transactional(Db, fun(Tx) ->
         wait(get(Tx, Key))
@@ -391,13 +455,13 @@ get(?IS_TX = Tx, Key) ->
 get(?IS_SS = SS, Key) ->
     get_ss(?GET_TX(SS), Key).
 
--spec get_ss(transaction() | snapshot(), key()) -> future().
+-spec get_ss(transaction() | snapshot(), key()) -> future() | result().
 get_ss(?IS_TX = Tx, Key) ->
     erlfdb_nif:transaction_get(Tx, Key, true);
 get_ss(?IS_SS = SS, Key) ->
     get_ss(?GET_TX(SS), Key).
 
--spec get_key(database() | transaction() | snapshot(), key_selector()) -> future().
+-spec get_key(database() | transaction() | snapshot(), key_selector()) -> future() | key().
 get_key(?IS_DB = Db, Key) ->
     transactional(Db, fun(Tx) ->
         wait(get_key(Tx, Key))
@@ -407,44 +471,79 @@ get_key(?IS_TX = Tx, Key) ->
 get_key(?IS_SS = SS, Key) ->
     get_key_ss(?GET_TX(SS), Key).
 
--spec get_key_ss(transaction(), key_selector()) -> future().
+-spec get_key_ss(transaction(), key_selector()) -> future() | key().
 get_key_ss(?IS_TX = Tx, Key) ->
     erlfdb_nif:transaction_get_key(Tx, Key, true).
 
--spec get_range(database() | transaction(), key(), key()) -> future().
+-spec get_range(database() | transaction(), key(), key()) -> list(kv()).
 get_range(DbOrTx, StartKey, EndKey) ->
     get_range(DbOrTx, StartKey, EndKey, []).
 
--spec get_range(database() | transaction(), key(), key(), [fold_option()]) -> future().
+-spec get_range(database() | transaction(), key(), key(), [fold_option()]) ->
+    fold_future() | list(mapped_kv()) | list(kv()).
 get_range(?IS_DB = Db, StartKey, EndKey, Options) ->
     transactional(Db, fun(Tx) ->
         get_range(Tx, StartKey, EndKey, Options)
     end);
 get_range(?IS_TX = Tx, StartKey, EndKey, Options) ->
-    Fun = fun(Rows, Acc) -> [Rows | Acc] end,
-    Chunks = fold_range_int(Tx, StartKey, EndKey, Fun, [], Options),
-    lists:flatten(lists:reverse(Chunks));
+    case erlfdb_util:get(Options, wait, true) of
+        true ->
+            Fun = fun(Rows, Acc) -> [Rows | Acc] end,
+            Chunks = folding_get_range_and_wait(Tx, StartKey, EndKey, Fun, [], Options),
+            lists:flatten(lists:reverse(Chunks));
+        false ->
+            fold_range_future(Tx, StartKey, EndKey, Options);
+        interleaving ->
+            SplitPoints = erlfdb:wait(
+                get_range_split_points(
+                    Tx, StartKey, EndKey, Options
+                )
+            ),
+            Ranges = erlfdb_key:list_to_ranges(SplitPoints),
+
+            Futures = [fold_range_future(Tx, SK, EK, Options) || {SK, EK} <- Ranges],
+            Result = wait_for_all_interleaving(Tx, Futures),
+            lists:flatten(Result)
+    end;
 get_range(?IS_SS = SS, StartKey, EndKey, Options) ->
     get_range(?GET_TX(SS), StartKey, EndKey, [{snapshot, true} | Options]).
 
--spec get_range_startswith(database() | transaction(), key()) -> future().
+-spec get_range_startswith(database() | transaction(), key()) -> list(kv()).
 get_range_startswith(DbOrTx, Prefix) ->
     get_range_startswith(DbOrTx, Prefix, []).
 
--spec get_range_startswith(database() | transaction(), key(), [fold_option()]) -> future().
+-spec get_range_startswith(database() | transaction(), key(), [fold_option()]) ->
+    fold_future() | list(mapped_kv()) | list(kv()).
 get_range_startswith(DbOrTx, Prefix, Options) ->
     StartKey = Prefix,
     EndKey = erlfdb_key:strinc(Prefix),
     get_range(DbOrTx, StartKey, EndKey, Options).
 
--spec get_mapped_range(database() | transaction(), key(), key(), mapper()) -> future().
+-spec get_mapped_range(database() | transaction(), key(), key(), mapper()) -> list(mapped_kv()).
 get_mapped_range(DbOrTx, StartKey, EndKey, Mapper) ->
     get_mapped_range(DbOrTx, StartKey, EndKey, Mapper, []).
 
 -spec get_mapped_range(database() | transaction(), key(), key(), mapper(), [fold_option()]) ->
-    future().
+    fold_future() | list(mapped_kv()).
 get_mapped_range(DbOrTx, StartKey, EndKey, Mapper, Options) ->
-    get_range(DbOrTx, StartKey, EndKey, [{mapper, erlfdb_tuple:pack(Mapper)} | Options]).
+    get_range(
+        DbOrTx,
+        StartKey,
+        EndKey,
+        lists:keystore(mapper, 1, Options, {mapper, erlfdb_tuple:pack(Mapper)})
+    ).
+
+-spec get_range_split_points(database() | transaction(), key(), key(), [split_option()]) ->
+    future() | list(key()).
+get_range_split_points(?IS_DB = Db, StartKey, EndKey, Options) ->
+    transactional(Db, fun(Tx) ->
+        Future = get_range_split_points(Tx, StartKey, EndKey, Options),
+        wait(Future)
+    end);
+get_range_split_points(?IS_TX = Tx, StartKey, EndKey, Options) ->
+    % 10M
+    ChunkSize = erlfdb_util:get(Options, chunk_size, 10000000),
+    erlfdb_nif:transaction_get_range_split_points(Tx, StartKey, EndKey, ChunkSize).
 
 -spec fold_range(database() | transaction(), key(), key(), function(), any()) -> any().
 fold_range(DbOrTx, StartKey, EndKey, Fun, Acc) ->
@@ -457,7 +556,7 @@ fold_range(?IS_DB = Db, StartKey, EndKey, Fun, Acc, Options) ->
         fold_range(Tx, StartKey, EndKey, Fun, Acc, Options)
     end);
 fold_range(?IS_TX = Tx, StartKey, EndKey, Fun, Acc, Options) ->
-    fold_range_int(
+    folding_get_range_and_wait(
         Tx,
         StartKey,
         EndKey,
@@ -474,25 +573,37 @@ fold_range(?IS_SS = SS, StartKey, EndKey, Fun, Acc, Options) ->
 -spec fold_range_future(transaction() | snapshot(), key(), key(), [fold_option()]) -> fold_future().
 fold_range_future(?IS_TX = Tx, StartKey, EndKey, Options) ->
     St = options_to_fold_st(StartKey, EndKey, Options),
-    fold_range_future_int(Tx, St);
+    folding_get_future(Tx, St);
 fold_range_future(?IS_SS = SS, StartKey, EndKey, Options) ->
     SSOptions = [{snapshot, true} | Options],
     fold_range_future(?GET_TX(SS), StartKey, EndKey, SSOptions).
 
--spec fold_range_wait(transaction(), fold_future(), function(), any()) -> any().
-fold_range_wait(?IS_TX = Tx, ?IS_FOLD_FUTURE = FI, Fun, Acc) ->
-    fold_range_int(
-        Tx,
-        FI,
-        fun(Rows, InnerAcc) ->
-            lists:foldl(Fun, InnerAcc, Rows)
-        end,
-        Acc
-    );
-fold_range_wait(?IS_SS = SS, ?IS_FOLD_FUTURE = FI, Fun, Acc) ->
-    fold_range_wait(?GET_TX(SS), FI, Fun, Acc).
+-spec fold_mapped_range_future(transaction(), key(), key(), mapper()) -> any().
+fold_mapped_range_future(Tx, StartKey, EndKey, Mapper) ->
+    fold_mapped_range_future(Tx, StartKey, EndKey, Mapper, []).
 
--spec set(database() | transaction() | snapshot(), key(), value()) -> future().
+-spec fold_mapped_range_future(transaction(), key(), key(), mapper(), [fold_option()]) ->
+    any().
+fold_mapped_range_future(Tx, StartKey, EndKey, Mapper, Options) ->
+    fold_range_future(
+        Tx,
+        StartKey,
+        EndKey,
+        lists:keystore(mapper, 1, Options, {mapper, erlfdb_tuple:pack(Mapper)})
+    ).
+
+-spec fold_range_wait(transaction() | snapshot(), fold_future(), function(), any()) -> any().
+fold_range_wait(Tx, FF, Fun, Acc) ->
+    fold_range_wait(Tx, FF, Fun, Acc, []).
+
+-spec fold_range_wait(transaction() | snapshot(), fold_future(), function(), any(), [wait_option()]) ->
+    any().
+fold_range_wait(?IS_TX = Tx, ?IS_FOLD_FUTURE = FF, Fun, Acc, Options) ->
+    wait_and_apply(Tx, [FF], Fun, Acc, Options);
+fold_range_wait(?IS_SS = SS, ?IS_FOLD_FUTURE = FF, Fun, Acc, Options) ->
+    fold_range_wait(?GET_TX(SS), FF, Fun, Acc, Options).
+
+-spec set(database() | transaction() | snapshot(), key(), value()) -> ok.
 set(?IS_DB = Db, Key, Value) ->
     transactional(Db, fun(Tx) ->
         set(Tx, Key, Value)
@@ -710,7 +821,7 @@ get_estimated_range_size(?IS_TX = Tx, StartKey, EndKey) ->
 get_estimated_range_size(?IS_SS = SS, StartKey, EndKey) ->
     erlfdb_nif:transaction_get_estimated_range_size(?GET_TX(SS), StartKey, EndKey).
 
--spec get_conflicting_keys(transaction()) -> future().
+-spec get_conflicting_keys(transaction()) -> any().
 get_conflicting_keys(?IS_TX = Tx) ->
     StartKey = <<16#FF, 16#FF, "/transaction/conflicting_keys/">>,
     EndKey = <<16#FF, 16#FF, "/transaction/conflicting_keys/", 16#FF>>,
@@ -758,17 +869,62 @@ do_transaction(?IS_TX = Tx, UserFun) ->
             do_transaction(Tx, UserFun)
     end.
 
--spec fold_range_int(transaction(), key(), key(), function(), any(), [fold_option()]) -> any().
-fold_range_int(?IS_TX = Tx, StartKey, EndKey, Fun, Acc, Options) ->
+-spec folding_get_range_and_wait(transaction(), key(), key(), function(), any(), [fold_option()]) ->
+    any().
+folding_get_range_and_wait(?IS_TX = Tx, StartKey, EndKey, Fun, Acc, Options) ->
     St = options_to_fold_st(StartKey, EndKey, Options),
-    fold_range_int(Tx, St, Fun, Acc).
+    fold_interleaving_and_wait(Tx, [St], Fun, Acc, Options).
 
--spec fold_range_int(transaction(), fold_future() | #fold_st{}, function(), any()) -> any().
-fold_range_int(Tx, #fold_st{} = St, Fun, Acc) ->
-    RangeFuture = fold_range_future_int(Tx, St),
-    fold_range_int(Tx, RangeFuture, Fun, Acc);
-fold_range_int(Tx, ?IS_FOLD_FUTURE = FI, Fun, Acc) ->
-    {fold_info, St, Future} = FI,
+-spec fold_interleaving_and_wait(transaction(), [#fold_st{}], function(), any(), [wait_option()]) ->
+    any().
+fold_interleaving_and_wait(Tx, Sts = [#fold_st{} | _], Fun, Acc, Options) ->
+    FFs = [folding_get_future(Tx, St) || St = #fold_st{} <- Sts],
+
+    wait_and_apply(Tx, FFs, Fun, Acc, Options).
+
+-spec wait_and_apply(
+    transaction() | snapshot(), [fold_future()], function(), any(), [
+        wait_option()
+    ]
+) -> any().
+wait_and_apply(Tx, FFs, Fun, Acc, Options) ->
+    Sts = [St || #fold_future{st = St} <- FFs],
+
+    {NewSts, NewAcc} = lists:foldl(
+        fun
+            (#fold_future{future = undefined}, {Sts0, Acc0}) ->
+                {Sts0, Acc0};
+            (FF, {Sts0, Acc0}) ->
+                #fold_future{future = Future, st = St0} = FF,
+                #fold_st{from = From0} = St0,
+                Result = wait(Future, Options),
+                case handle_fold_st_result(FF, Result) of
+                    {ResultTuple, NewSt = #fold_st{from = From0}} ->
+                        folding_apply(
+                            lists:keyreplace(From0, #fold_st.from, Sts0, NewSt),
+                            From0,
+                            ResultTuple,
+                            Fun,
+                            Acc0,
+                            Options
+                        );
+                    ResultTuple ->
+                        folding_apply(Sts0, From0, ResultTuple, Fun, Acc0, Options)
+                end
+        end,
+        {Sts, Acc},
+        FFs
+    ),
+
+    case NewSts of
+        [] ->
+            NewAcc;
+        _ ->
+            fold_interleaving_and_wait(Tx, NewSts, Fun, NewAcc, Options)
+    end.
+
+handle_fold_st_result(?IS_FOLD_FUTURE = FF, {RawRows, Count, HasMore}) ->
+    #fold_future{st = St} = FF,
     #fold_st{
         start_key = StartKey,
         end_key = EndKey,
@@ -776,8 +932,6 @@ fold_range_int(Tx, ?IS_FOLD_FUTURE = FI, Fun, Acc) ->
         iteration = Iteration,
         reverse = Reverse
     } = St,
-
-    {RawRows, Count, HasMore} = wait(Future),
 
     Count = length(RawRows),
 
@@ -789,21 +943,14 @@ fold_range_int(Tx, ?IS_FOLD_FUTURE = FI, Fun, Acc) ->
             true -> lists:sublist(RawRows, Limit)
         end,
 
-    % Invoke our callback to update the accumulator
-    NewAcc =
-        if
-            Rows == [] -> Acc;
-            true -> Fun(Rows, Acc)
-        end,
-
     % Determine if we have more rows to iterate
     Recurse = (Rows /= []) and (Limit == 0 orelse Limit > Count) and HasMore,
 
     if
         not Recurse ->
-            NewAcc;
+            {done, Rows};
         true ->
-            LastKey = fold_range_last_key_int(Rows, St),
+            LastKey = get_last_key(Rows, St),
             {NewStartKey, NewEndKey} =
                 case Reverse /= 0 of
                     true ->
@@ -821,17 +968,41 @@ fold_range_int(Tx, ?IS_FOLD_FUTURE = FI, Fun, Acc) ->
                     end,
                 iteration = Iteration + 1
             },
-            fold_range_int(Tx, NewSt, Fun, NewAcc)
+            {{more, Rows}, NewSt}
+    end;
+handle_fold_st_result(?IS_FOLD_FUTURE, Result) ->
+    {done, Result}.
+
+-spec folding_apply(list(#fold_st{}), future(), {more | done, any()}, function(), any(), [
+    wait_option()
+]) -> {list(#fold_st{}), any()}.
+folding_apply(Sts0, Ref0, {more, Result0}, Fun, Acc0, Options) ->
+    #fold_st{idx = Idx} = lists:keyfind(Ref0, #fold_st.from, Sts0),
+    {Sts0, (fold_wrap(Fun, Idx, Options))(Result0, Acc0)};
+folding_apply(Sts0, Ref0, {done, Result0}, Fun, Acc0, Options) ->
+    {value, #fold_st{idx = Idx}, Sts1} = lists:keytake(Ref0, #fold_st.from, Sts0),
+    {Sts1, (fold_wrap(Fun, Idx, Options))(Result0, Acc0)}.
+
+-spec fold_wrap(function(), undefined | non_neg_integer(), [wait_option()]) -> function().
+fold_wrap(Fun, Idx, Options) ->
+    case proplists:get_value(with_index, Options, false) of
+        false ->
+            Fun;
+        true ->
+            fun(X, Acc) -> Fun({X, Idx}, Acc) end
     end.
 
--spec fold_range_last_key_int(list(), #fold_st{}) -> key().
-fold_range_last_key_int(Rows, #fold_st{mapper = undefined}) ->
-    element(1, lists:last(Rows));
-fold_range_last_key_int(Rows, #fold_st{mapper = _Mapper}) ->
-    element(1, element(1, lists:last(Rows))).
+-spec get_last_key(list(), #fold_st{}) -> key().
+get_last_key(Rows, #fold_st{mapper = undefined}) ->
+    {K, _V} = lists:last(Rows),
+    K;
+get_last_key(Rows, #fold_st{mapper = _Mapper}) ->
+    {KV, _, _} = lists:last(Rows),
+    {K, _} = KV,
+    K.
 
--spec fold_range_future_int(transaction(), #fold_st{}) -> fold_future().
-fold_range_future_int(?IS_TX = Tx, #fold_st{mapper = undefined} = St) ->
+-spec folding_get_future(transaction(), #fold_st{}) -> fold_future().
+folding_get_future(?IS_TX = Tx, #fold_st{mapper = undefined} = St) ->
     #fold_st{
         start_key = StartKey,
         end_key = EndKey,
@@ -855,8 +1026,14 @@ fold_range_future_int(?IS_TX = Tx, #fold_st{mapper = undefined} = St) ->
         Reverse
     ),
 
-    {fold_info, St, Future};
-fold_range_future_int(?IS_TX = Tx, #fold_st{} = St) ->
+    NewSt =
+        case St of
+            #fold_st{from = undefined} -> St#fold_st{from = Future};
+            _ -> St
+        end,
+
+    #fold_future{st = NewSt, future = Future};
+folding_get_future(?IS_TX = Tx, #fold_st{} = St) ->
     #fold_st{
         start_key = StartKey,
         end_key = EndKey,
@@ -882,7 +1059,13 @@ fold_range_future_int(?IS_TX = Tx, #fold_st{} = St) ->
         Reverse
     ),
 
-    {fold_info, St, Future}.
+    NewSt =
+        case St of
+            #fold_st{from = undefined} -> St#fold_st{from = Future};
+            _ -> St
+        end,
+
+    #fold_future{st = NewSt, future = Future}.
 
 -spec options_to_fold_st(key(), key(), [fold_option()]) -> #fold_st{}.
 options_to_fold_st(StartKey, EndKey, Options) ->
@@ -901,7 +1084,8 @@ options_to_fold_st(StartKey, EndKey, Options) ->
         streaming_mode = erlfdb_util:get(Options, streaming_mode, want_all),
         iteration = erlfdb_util:get(Options, iteration, 1),
         snapshot = erlfdb_util:get(Options, snapshot, false),
-        reverse = Reverse
+        reverse = Reverse,
+        from = undefined
     }.
 
 -spec flush_future_message(future()) -> ok.

@@ -42,6 +42,7 @@
     transaction_get_key/3,
     transaction_get_addresses_for_key/2,
     transaction_get_range/9,
+    transaction_get_range_split_points/4,
     transaction_get_mapped_range/10,
     transaction_set/3,
     transaction_clear/2,
@@ -114,6 +115,7 @@
     | not_found
     | []
     | [{key(), value()}]
+    | [{{key(), value()}, {key(), key()}, list({key(), value()})}]
     | ok.
 
 -type network_option() ::
@@ -375,6 +377,25 @@ transaction_get_range(
         Reverse
     ).
 
+-spec transaction_get_range_split_points(
+    transaction(),
+    StartKey :: binary(),
+    EndKey :: binary(),
+    ChunkSize :: non_neg_integer()
+) -> future().
+transaction_get_range_split_points(
+    {erlfdb_transaction, Tx},
+    StartKey,
+    EndKey,
+    ChunkSize
+) ->
+    erlfdb_transaction_get_range_split_points(
+        Tx,
+        StartKey,
+        EndKey,
+        ChunkSize
+    ).
+
 -spec transaction_get_mapped_range(
     transaction(),
     StartKeySelector :: key_selector(),
@@ -625,6 +646,13 @@ erlfdb_transaction_get_range(
     _Iteration,
     _Snapshot,
     _Reverse
+) ->
+    ?NOT_LOADED.
+erlfdb_transaction_get_range_split_points(
+    _Transaction,
+    _StartKey,
+    _EndKey,
+    _ChunkSize
 ) ->
     ?NOT_LOADED.
 erlfdb_transaction_get_mapped_range(

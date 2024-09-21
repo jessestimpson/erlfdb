@@ -37,7 +37,7 @@ get_set_get_test() ->
 
 get_empty_test() ->
     Db = erlfdb_util:get_test_db(),
-    Tenant1 = erlfdb_util:create_and_open_test_tenant(Db, []),
+    Tenant1 = erlfdb_util:create_and_open_test_tenant(Db, [empty]),
     Key = gen_key(8),
     Val = crypto:strong_rand_bytes(8),
     erlfdb:transactional(Tenant1, fun(Tx) ->
@@ -61,22 +61,15 @@ get_empty_test() ->
 
 get_set_get_tenant_test() ->
     Db = erlfdb_util:get_test_db(),
-    Tenant = erlfdb_util:create_and_open_test_tenant(Db, []),
+    Tenant = erlfdb_util:create_and_open_test_tenant(Db, [empty]),
     get_set_get(Tenant),
     erlfdb_util:clear_and_delete_test_tenant(Db).
 
 get_range_test() ->
     Db = erlfdb_util:get_test_db(),
-    Tenant = erlfdb_util:create_and_open_test_tenant(Db, []),
+    Tenant = erlfdb_util:create_and_open_test_tenant(Db, [empty]),
 
-    KVs = [
-        {{<<"get_range_test">>, 1}, {<<"get_range_test">>, <<"A">>}},
-        {{<<"get_range_test">>, 2}, {<<"get_range_test">>, <<"B">>}},
-        {{<<"get_range_test">>, 3}, {<<"get_range_test">>, <<"C">>}}
-    ],
-    erlfdb:transactional(Tenant, fun(Tx) ->
-        [erlfdb:set(Tx, erlfdb_tuple:pack(K), erlfdb_tuple:pack(V)) || {K, V} <- KVs]
-    end),
+    KVs = create_range(Tenant, <<"get_range_test">>, 3),
 
     {StartKey, EndKey} = erlfdb_tuple:range({<<"get_range_test">>}),
     GetRangeResult = erlfdb:transactional(Tenant, fun(Tx) ->
@@ -86,20 +79,16 @@ get_range_test() ->
 
     ?assertEqual(KVs, GetRangeResult),
 
-    MsgKey = erlfdb_tuple:pack({<<"get_range_test">>, <<"A">>, <<"msg">>}),
-    erlfdb:transactional(Tenant, fun(Tx) ->
-        erlfdb:set(Tx, MsgKey, <<"hello world">>)
-    end),
-
     Vsn = erlfdb_nif:get_max_api_version(),
 
     if
         Vsn >= 730 ->
+            Mapper = create_mapping_on_range(Tenant, <<"get_range_test">>, 1, <<"hello world">>),
+
             Result = erlfdb:transactional(Tenant, fun(Tx) ->
                 MStartKey = erlfdb_tuple:pack({<<"get_range_test">>, 1}),
                 MEndKey = erlfdb_key:strinc(MStartKey),
 
-                Mapper = {<<"get_range_test">>, <<"{V[1]}">>, <<"{...}">>},
                 [{{_PKey, _PValue}, {_SKeyBegin, _SKeyEnd}, [{_Key, Message}]}] = erlfdb:wait(
                     erlfdb:get_mapped_range(Tx, MStartKey, MEndKey, Mapper)
                 ),
@@ -111,6 +100,115 @@ get_range_test() ->
             ok
     end.
 
+interleaving_test() ->
+    Db = erlfdb_util:get_test_db(),
+    Tenant = erlfdb_util:create_and_open_test_tenant(Db, [empty]),
+
+    % Needs to be pretty large so that split points is non-trivial
+    N = 5000,
+
+    KVs = create_range(Tenant, <<"interleaving_test">>, N),
+    Mapper = create_mapping_on_range(Tenant, <<"interleaving_test">>, N, <<"hello world">>),
+
+    Vsn = erlfdb_nif:get_max_api_version(),
+
+    [R1, R2, R3, foobar, R4] = erlfdb:transactional(Tenant, fun(Tx) ->
+        % F1 is a future doing a small get_range
+        F1 = erlfdb:fold_range_future(
+            Tx,
+            erlfdb_tuple:pack({<<"interleaving_test">>, 1}),
+            erlfdb_tuple:pack({<<"interleaving_test">>, 2}),
+            [{target_bytes, 1}]
+        ),
+
+        % F2 is a future with a simple get
+        F2 = erlfdb:get(Tx, erlfdb_tuple:pack({<<"interleaving_test">>, 2})),
+
+        % F3 is a future with a larger get_range
+        F3 = erlfdb:fold_range_future(
+            Tx,
+            erlfdb_tuple:pack({<<"interleaving_test">>, 2}),
+            erlfdb_tuple:pack({<<"interleaving_test">>, N + 1}),
+            [{target_bytes, 1}]
+        ),
+
+        % foobar is simulating some data that was already resolved, but found
+        % its way into a wait call
+        Futures =
+            if
+                Vsn >= 730 ->
+                    % F4 is a get_range with a mapper
+                    F4 = erlfdb:fold_mapped_range_future(
+                        Tx,
+                        erlfdb_tuple:pack({<<"interleaving_test">>, 1}),
+                        erlfdb_tuple:pack({<<"interleaving_test">>, N + 1}),
+                        Mapper
+                    ),
+                    [F1, F2, F3, foobar, F4];
+                true ->
+                    [F1, F2, F3, foobar, vsn]
+            end,
+
+        % wait_for_all_interleaving will wait on the first round o futures and then process to
+        % issue the necessary gets to the db in stages, interleaved with each other to help reduce
+        % waiting on the network.
+        erlfdb:wait_for_all_interleaving(Tx, Futures)
+    end),
+
+    ?assertEqual(KVs, [{erlfdb_tuple:unpack(K), erlfdb_tuple:unpack(V)} || {K, V} <- R1 ++ R3]),
+    ?assertEqual({<<"interleaving_test">>, <<"B">>}, erlfdb_tuple:unpack(R2)),
+
+    if
+        Vsn >= 730 ->
+            ExpectMessages = lists:duplicate(N, <<"hello world">>),
+            ActualMessages = [
+                Message
+             || {{_PKey, _PValue}, {_SKeyBegin, _SKeyEnd}, [{_Key, Message}]} <- R4
+            ],
+            ?assertEqual(ExpectMessages, ActualMessages);
+        true ->
+            ok
+    end,
+
+    % Using range split points, issue a set of get_range operations with interleaving
+    % waits (pipelined).
+    SplitResult = erlfdb:transactional(Tenant, fun(Tx) ->
+        erlfdb:get_range(
+            Tx,
+            erlfdb_tuple:pack({<<"interleaving_test">>, 1}),
+            erlfdb_tuple:pack({<<"interleaving_test">>, N + 1}),
+            [{wait, interleaving}, {chunk_size, 1}, {target_bytes, 1}]
+        )
+    end),
+
+    SplitResult2 = [
+        {erlfdb_tuple:unpack(K), erlfdb_tuple:unpack(V)}
+     || {K, V} <- SplitResult
+    ],
+
+    ?assertEqual(KVs, SplitResult2).
+
+create_range(Tenant, Label, N) ->
+    KVs = [
+        {{Label, X}, {Label, <<($A + X - 1)>>}}
+     || X <- lists:seq(1, N)
+    ],
+
+    erlfdb:transactional(Tenant, fun(Tx) ->
+        [erlfdb:set(Tx, erlfdb_tuple:pack(K), erlfdb_tuple:pack(V)) || {K, V} <- KVs]
+    end),
+
+    KVs.
+
+create_mapping_on_range(Tenant, Label, N, Message) ->
+    erlfdb:transactional(Tenant, fun(Tx) ->
+        [
+            erlfdb:set(Tx, erlfdb_tuple:pack({Label, <<($A + X - 1)>>, <<"msg">>}), Message)
+         || X <- lists:seq(1, N)
+        ]
+    end),
+    {Label, <<"{V[1]}">>, <<"{...}">>}.
+
 % get_mapped_range requires the use of tuples in the keys/values so that the
 % element selector syntax can be used. This test demonstrates the minimal set
 % of keys necessary to exercise the feature.
@@ -120,7 +218,7 @@ get_mapped_range_minimal_test() ->
     if
         Vsn >= 730 ->
             Db = erlfdb_util:get_test_db(),
-            Tenant = erlfdb_util:create_and_open_test_tenant(Db, []),
+            Tenant = erlfdb_util:create_and_open_test_tenant(Db, [empty]),
             erlfdb:transactional(Tenant, fun(Tx) ->
                 erlfdb:set(Tx, <<"a">>, erlfdb_tuple:pack({<<"b">>})),
                 erlfdb:set(Tx, erlfdb_tuple:pack({<<"b">>}), <<"c">>)
@@ -146,7 +244,7 @@ get_mapped_range_continuation_test() ->
         Vsn >= 730 ->
             N = 100,
             Db = erlfdb_util:get_test_db(),
-            Tenant = erlfdb_util:create_and_open_test_tenant(Db, []),
+            Tenant = erlfdb_util:create_and_open_test_tenant(Db, [empty]),
             erlfdb:transactional(Tenant, fun(Tx) ->
                 [
                     begin
