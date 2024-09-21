@@ -16,3 +16,6 @@ _build/
 ebin/
 
 doc/
+
+# Must be generated locally
+.clangd
