@@ -1,5 +1,28 @@
 FDBReleasesBaseUrl = "https://api.github.com/repos/apple/foundationdb/releases".
 
+% Detect rebar3 or mix
+RebarApi = {error, nofile} =/= code:ensure_loaded(rebar_api).
+
+% Logs to stdout/stderr from either rebar3 or mix
+Log = fun(Level, Fmt, Args) ->
+    if RebarApi ->
+        rebar_api:Level("[erlfdb] " ++ Fmt, Args);
+    true ->
+        Message = iolist_to_binary(io_lib:format(Fmt, Args)),
+        Level2 = if Level =:= abort -> error; true -> Level end,
+        ('Elixir.Mix':shell()):Level2(io_lib:format("===> [erlfdb] ~s", [Message])),
+        if
+            Level =:= abort ->
+                'Elixir.Mix':raise(Message);
+            true ->
+                ok
+        end
+    end
+end.
+
+% Check architecture against regex
+IsArch = fun(ArchRe) -> match =:= re:run(erlang:system_info(system_architecture), ArchRe, [{capture, none}]) end.
+
 % Hacky means to extract API version from fdbcli protocol version output
 % See https://github.com/apple/foundationdb/blob/master/flow/ProtocolVersion.h
 MaxAPIVersion =
@@ -15,12 +38,11 @@ MaxAPIVersion =
         end
     end.
 
-IsArch = fun(ArchRe) -> match =:= re:run(rebar_api:get_arch(), ArchRe, [{capture, none}]) end.
-
+% Make an HTTP GET request, expect JSON body
 GetJson = fun(Url) ->
     case code:ensure_loaded(json) of
         {module, _} ->
-            rebar_api:info("[get] ~s", [Url]),
+            Log(info, "  GET ~s", [Url]),
             case httpc:request(get, {Url, [{"User-Agent", "rebar3 erlfdb"}]}, [], []) of
                 {ok, {{"HTTP/1.1", 200, "OK"}, _, Body}} ->
                     {ok, json:decode(iolist_to_binary(Body))};
@@ -32,6 +54,7 @@ GetJson = fun(Url) ->
     end
 end.
 
+% Gets the latest release version from the official FoundationDB GitHub Releases
 GetLatestRelease = fun() ->
     case GetJson(FDBReleasesBaseUrl ++ "/latest") of
         {ok, #{<<"tag_name">> := LatestTag}} ->
@@ -50,6 +73,7 @@ GetLatestRelease = fun() ->
     end
 end.
 
+% From the list of assets in the FDB Release, get those that match the regex
 GetAssetByNameRe = fun(NameRe, Assets) ->
     case
         lists:filter(
@@ -64,6 +88,7 @@ GetAssetByNameRe = fun(NameRe, Assets) ->
     end
 end.
 
+% Filter the list of assets in the FDB Release by the known supported architectures
 GetSupportedAssets = fun(Assets) ->
     [
         {"(aarch64-apple-darwin)", #{
@@ -77,6 +102,7 @@ GetSupportedAssets = fun(Assets) ->
     ]
 end.
 
+% Gets the asset map for the latest non-AVX FDB Release on the current architecture
 GetLatestNonAVXAssets = fun() ->
     % AVX releases have odd patch numbers, so we make sure we have the even one
     % If you want the AVX release, please install it manually.
@@ -100,7 +126,7 @@ GetLatestNonAVXAssets = fun() ->
                         [{_, AssetsMap} | _] ->
                             {ok, AssetsMap};
                         [] ->
-                            {error, unsupported_arch}
+                            {error, "Architecture may not have an official FoundationDB release."}
                     end;
                 Error ->
                     Error
@@ -110,65 +136,50 @@ GetLatestNonAVXAssets = fun() ->
     end
 end.
 
+% Logs the list of assets to stdout
 LogAssetsMap = fun
     LL(#{server := ServerAsset, clients := undefined}) ->
-        rebar_api:info(
-            "For both the `foundationdb-server' and `foundationdb-clients' packages, download and install~n~n        ~ts~n",
+        Log(info,
+            "For both the foundationdb-server and foundationdb-clients packages, download and install~n~n        ~ts~n",
             [maps:get(<<"browser_download_url">>, ServerAsset)]
         );
     LL(#{server := ServerAsset, clients := ClientsAsset}) ->
-        rebar_api:info(
-            "For the `foundationdb-server' package, download and install~n~n        ~ts~n", [
+        Log(info,
+            "For the foundationdb-server package, download and install~n~n        ~ts~n", [
                 maps:get(<<"browser_download_url">>, ServerAsset)
             ]
         ),
-        rebar_api:info(
-            "For the `foundationdb-clients' package, download and install~n~n        ~ts~n", [
+        Log(info,
+            "For the foundationdb-clients package, download and install~n~n        ~ts~n", [
                 maps:get(<<"browser_download_url">>, ClientsAsset)
             ]
         )
 end.
 
-AssertFdbCli = "0" =/= os:getenv("ERLFDB_ASSERT_FDBCLI").
-
+% If MaxAPIVersion undetected, print helpful informatiom about where to download the latest FDB Release
 case MaxAPIVersion of
     undefined ->
+        Log(info, "Checking for latest FoundationDB release...", []),
         {ok, _} = application:ensure_all_started(inets),
-        case application:ensure_all_started(ssl) of
+        Message = case application:ensure_all_started(ssl) of
             {ok, _} ->
                 case GetLatestNonAVXAssets() of
                     {ok, AssetsMap} ->
                         LogAssetsMap(AssetsMap),
-                        ErrorFun =
-                            if
-                                AssertFdbCli -> abort;
-                                true -> info
-                            end,
-                        rebar_api:ErrorFun(
-                            "The `foundationdb-clients' package is required to compile erlfdb. See download link above.",
-                            []
-                        );
-                    {error, Reason} ->
-                        ErrorFun =
-                            if
-                                AssertFdbCli -> error;
-                                true -> info
-                            end,
-                        rebar_api:ErrorFun(
-                            "The `foundationdb-clients' package is required to compile erlfdb. We're unable to detect the latest FoundationDB release. Please visit `https://github.com/apple/foundationdb/releases~~n~n        Error: ~p.",
-                            [Reason]
-                        )
+                        undefined;
+                    {error, _Reason} ->
+                        "The foundationdb-clients package is required to compile erlfdb. Please visit~n~n        https://github.com/apple/foundationdb/releases~n"
                 end;
-            {error, Reason} ->
-                ErrorFun =
-                    if
-                        AssertFdbCli -> error;
-                        true -> info
-                    end,
-                rebar_api:ErrorFun(
-                    "The `foundationdb-clients' package is required to compile erlfdb. We're unable to detect the latest FoundationDB release. Please visit `https://github.com/apple/foundationdb/releases~~n~n        Error: ~p.",
-                    [Reason]
-                )
+            {error, _Reason} ->
+                "The foundationdb-clients package is required to compile erlfdb. Please visit~n~n        https://github.com/apple/foundationdb/releases~n"
+        end,
+        [ Log(info, Message, []) || Message =/= undefined ],
+        AssertFdbCli = "0" =/= os:getenv("ERLFDB_ASSERT_FDBCLI"),
+        if
+            AssertFdbCli ->
+                Log(abort, "Error: fdbcli not found on PATH.", []);
+            true ->
+                Log(error, "fdbcli not found on PATH. Continuing anyway...", [])
         end;
     _ ->
         ok
