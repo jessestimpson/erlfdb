@@ -3,31 +3,50 @@ FDBReleasesBaseUrl = "https://api.github.com/repos/apple/foundationdb/releases".
 % Detect rebar3 or mix
 RebarApi = {error, nofile} =/= code:ensure_loaded(rebar_api).
 
+% Look for fdbcli on PATH, but also check /usr/local/bin explicitly since that is the common location
+FdbCli =
+    case os:find_executable("fdbcli") of
+        false ->
+            case os:find_executable("fdbcli", "/usr/local/bin") of
+                false -> "fdbcli";
+                Exec -> Exec
+            end;
+        Exec ->
+            Exec
+    end.
+
 % Logs to stdout/stderr from either rebar3 or mix
 Log = fun(Level, Fmt, Args) ->
-    if RebarApi ->
-        rebar_api:Level("[erlfdb] " ++ Fmt, Args);
-    true ->
-        Message = iolist_to_binary(io_lib:format(Fmt, Args)),
-        Level2 = if Level =:= abort -> error; true -> Level end,
-        ('Elixir.Mix':shell()):Level2(io_lib:format("===> [erlfdb] ~s", [Message])),
-        if
-            Level =:= abort ->
-                'Elixir.Mix':raise(Message);
-            true ->
-                ok
-        end
+    if
+        RebarApi ->
+            rebar_api:Level("[erlfdb] " ++ Fmt, Args);
+        true ->
+            Message = iolist_to_binary(io_lib:format(Fmt, Args)),
+            Level2 =
+                if
+                    Level =:= abort -> error;
+                    true -> Level
+                end,
+            ('Elixir.Mix':shell()):Level2(io_lib:format("===> [erlfdb] ~s", [Message])),
+            if
+                Level =:= abort ->
+                    'Elixir.Mix':raise(Message);
+                true ->
+                    ok
+            end
     end
 end.
 
 % Check architecture against regex
-IsArch = fun(ArchRe) -> match =:= re:run(erlang:system_info(system_architecture), ArchRe, [{capture, none}]) end.
+IsArch = fun(ArchRe) ->
+    match =:= re:run(erlang:system_info(system_architecture), ArchRe, [{capture, none}])
+end.
 
 % Hacky means to extract API version from fdbcli protocol version output
 % See https://github.com/apple/foundationdb/blob/master/flow/ProtocolVersion.h
 MaxAPIVersion =
     begin
-        VsnInfo = os:cmd("fdbcli --version"),
+        VsnInfo = os:cmd(FdbCli ++ " --version"),
         case re:run(VsnInfo, "protocol ([a-f0-9]*)", [{capture, [1], list}]) of
             {match, [ProtocolStr]} ->
                 ProtocolVsn = list_to_integer(ProtocolStr, 16),
@@ -139,18 +158,23 @@ end.
 % Logs the list of assets to stdout
 LogAssetsMap = fun
     LL(#{server := ServerAsset, clients := undefined}) ->
-        Log(info,
+        Log(
+            info,
             "For both the foundationdb-server and foundationdb-clients packages, download and install~n~n        ~ts~n",
             [maps:get(<<"browser_download_url">>, ServerAsset)]
         );
     LL(#{server := ServerAsset, clients := ClientsAsset}) ->
-        Log(info,
-            "For the foundationdb-server package, download and install~n~n        ~ts~n", [
+        Log(
+            info,
+            "For the foundationdb-server package, download and install~n~n        ~ts~n",
+            [
                 maps:get(<<"browser_download_url">>, ServerAsset)
             ]
         ),
-        Log(info,
-            "For the foundationdb-clients package, download and install~n~n        ~ts~n", [
+        Log(
+            info,
+            "For the foundationdb-clients package, download and install~n~n        ~ts~n",
+            [
                 maps:get(<<"browser_download_url">>, ClientsAsset)
             ]
         )
@@ -161,19 +185,20 @@ case MaxAPIVersion of
     undefined ->
         Log(info, "Checking for latest FoundationDB release...", []),
         {ok, _} = application:ensure_all_started(inets),
-        Message = case application:ensure_all_started(ssl) of
-            {ok, _} ->
-                case GetLatestNonAVXAssets() of
-                    {ok, AssetsMap} ->
-                        LogAssetsMap(AssetsMap),
-                        undefined;
-                    {error, _Reason} ->
-                        "The foundationdb-clients package is required to compile erlfdb. Please visit~n~n        https://github.com/apple/foundationdb/releases~n"
-                end;
-            {error, _Reason} ->
-                "The foundationdb-clients package is required to compile erlfdb. Please visit~n~n        https://github.com/apple/foundationdb/releases~n"
-        end,
-        [ Log(info, Message, []) || Message =/= undefined ],
+        Message =
+            case application:ensure_all_started(ssl) of
+                {ok, _} ->
+                    case GetLatestNonAVXAssets() of
+                        {ok, AssetsMap} ->
+                            LogAssetsMap(AssetsMap),
+                            undefined;
+                        {error, _Reason} ->
+                            "The foundationdb-clients package is required to compile erlfdb. Please visit~n~n        https://github.com/apple/foundationdb/releases~n"
+                    end;
+                {error, _Reason} ->
+                    "The foundationdb-clients package is required to compile erlfdb. Please visit~n~n        https://github.com/apple/foundationdb/releases~n"
+            end,
+        [Log(info, Message, []) || Message =/= undefined],
         AssertFdbCli = "0" =/= os:getenv("ERLFDB_ASSERT_FDBCLI"),
         if
             AssertFdbCli ->
@@ -213,15 +238,14 @@ CoverallConfig =
 ErlOpts = proplists:get_value(erl_opts, CONFIG, []).
 
 [
-    {erl_opts,
-        ErlOpts ++ [{d, erlfdb_api_version, MaxAPIVersion}]
-    },
+    {erl_opts, ErlOpts ++ [{d, erlfdb_api_version, MaxAPIVersion}]},
     {port_env, [
         {
             "(linux|solaris|freebsd|netbsd|openbsd|dragonfly|darwin|gnu)",
             "CFLAGS",
             "$CFLAGS -I/usr/local/include -Ic_src/ -g -Wall -Werror " ++
-                (if MaxAPIVersion < 730 ->
+                (if
+                    MaxAPIVersion < 730 ->
                         "-DFDB_API_VERSION=" ++ integer_to_list(MaxAPIVersion);
                     true ->
                         "-DFDB_USE_LATEST_API_VERSION=1"
@@ -231,7 +255,8 @@ ErlOpts = proplists:get_value(erl_opts, CONFIG, []).
             "win32",
             "CFLAGS",
             "$CFLAGS /I\"c:/Program Files/foundationdb/include\" /O2 /DNDEBUG " ++
-                (if MaxAPIVersion < 730 ->
+                (if
+                    MaxAPIVersion < 730 ->
                         "-DFDB_API_VERSION=" ++ integer_to_list(MaxAPIVersion);
                     true ->
                         "-DFDB_USE_LATEST_API_VERSION=1"
