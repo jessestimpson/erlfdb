@@ -555,6 +555,14 @@ execute(TxObj, St, <<"GET_RANGE_SELECTOR">>) ->
     stack_push_range(St, Resp, Prefix),
     St;
 
+execute(TxObj, St, <<"GET_RANGE_SPLIT_POINTS">>) ->
+    [Key1, Key2, ChunkSize] = stack_pop(St, 3),
+    Options = [{chunk_size, ChunkSize}],
+    Result = erlfdb:get_range_split_points(TxObj, Key1, Key2, Options),
+    true = is_list(erlfdb:wait(Result)),
+    stack_push(St, <<"GOT_RANGE_SPLIT_POINTS">>),
+    St;
+
 execute(TxObj, St, <<"GET_READ_VERSION">>) ->
     LastVersion = erlfdb:wait(erlfdb:get_read_version(TxObj)),
     stack_push(St, <<"GOT_READ_VERSION">>),

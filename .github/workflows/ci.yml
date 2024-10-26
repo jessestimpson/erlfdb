@@ -73,13 +73,44 @@ jobs:
           sudo dpkg -i foundationdb-server_${FDB_VERSION}-1_amd64.deb
       - name: EUnit tests
         run: rebar3 eunit
-# The binding_tester is currently disabled until we can resolve the broken dependency on
-#      image: apache/couchdbci-debian:erlfdb-erlang-24.1.5.0-fdb-6.3.18-1
 
-#  binding_tester:
-#    runs-on: ubuntu-20.04
-#    strategy:
-#      matrix:
+  binding_tester:
+    runs-on: ubuntu-20.04
+    strategy:
+      matrix:
+        otp: ["27.0.1"]
+        fdb: ["7.3.42"]
+    env:
+      FDB_VERSION: ${{ matrix.fdb }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{matrix.otp}}
+      - name: Install FoundationDB
+        run: |
+          wget https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-clients_${FDB_VERSION}-1_amd64.deb
+          wget https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-server_${FDB_VERSION}-1_amd64.deb
+          sudo dpkg -i foundationdb-clients_${FDB_VERSION}-1_amd64.deb
+          sudo dpkg -i foundationdb-server_${FDB_VERSION}-1_amd64.deb
+          fdbcli --exec 'configure tenant_mode=optional_experimental'
+      - name: EUnit tests
+        run: rebar3 eunit
+      - name: Binding Tester
+        env:
+          ERL_LIBS: _build/test/lib/erlfdb/
+        run: |
+          curl -L "https://github.com/apple/foundationdb/archive/${{ env.FDB_VERSION }}.tar.gz" > foundation.tar.gz
+          tar -xf foundation.tar.gz
+          rm foundation.tar.gz
+          mv foundationdb-$FDB_VERSION foundationdb
+          cd foundationdb
+          sed "s:USER_SITE_PATH:$(python3 -m site --user-site):g" ../test/foundationdb.patch | patch -p1
+          cd ..
+          pip3 install --user -Iv foundationdb==${{ env.FDB_VERSION }}
+          pip3 show foundationdb
+          ./test/loop.sh
+
 #        test-name: [api, directory, directory_hca, tuple]
 #        api-version: [610, 620, 630]
 #        include:
