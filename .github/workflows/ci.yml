@@ -20,8 +20,8 @@ jobs:
           - otp: "25"
             fdb: "7.3.42"
             eunit: true
-          - otp: "25"
-            fdb: "7.3.42"
+          - otp: "27.0.1"
+            fdb: "7.2.2"
             eunit: true
           - otp: "27.0.1"
             fdb: "7.3.42"
