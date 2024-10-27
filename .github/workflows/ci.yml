@@ -9,12 +9,29 @@ permissions:
   contents: read
 
 jobs:
-  fmt:
+  linux:
     runs-on: ubuntu-20.04
-    name: fmt / OTP ${{matrix.otp}}
     strategy:
       matrix:
-        otp: ["25", "27.0.1"]
+        include:
+          #          - otp: "25"
+          #            fdb: "7.2.2"
+          #            eunit: true
+          #          - otp: "25"
+          #            fdb: "7.3.42"
+          #            eunit: true
+          #          - otp: "25"
+          #            fdb: "7.3.42"
+          #            eunit: true
+          - otp: "27.0.1"
+            fdb: "7.3.42"
+            eunit: true
+            binding_tester: false
+            dialyzer: false
+            fmt: false
+    name: "linux / OTP ${{ matrix.otp }} / FDB ${{ matrix.fdb }} (${{ matrix.eunit && 'eunit' || '' }}${{ matrix.binding_tester && ' binding_tester' || '' }}${{ matrix.dialyzer && ' dialyzer' || '' }}${{ matrix.fmt && ' fmt' || '' }})"
+    env:
+      FDB_VERSION: ${{ matrix.fdb }}
     steps:
       - uses: actions/checkout@v4
       - uses: erlef/setup-beam@v1
@@ -22,71 +39,13 @@ jobs:
           otp-version: ${{matrix.otp}}
       - name: Run rebar3 fmt check for Erlang files
         run: ERLFDB_ASSERT_FDBCLI=0 rebar3 fmt --check
+        if: ${{ matrix.fmt }}
       - name: Run clang-format check for C files
         uses: jidicula/clang-format-action@v4.11.0
         with:
           clang-format-version: "18"
           check-path: c_src
-
-  dialyzer:
-    runs-on: ubuntu-20.04
-    name: dialyzer / OTP ${{matrix.otp}} / FDB ${{matrix.fdb}}
-    strategy:
-      matrix:
-        otp: ["25", "27.0.1"]
-        fdb: ["7.2.2", "7.3.42"]
-    env:
-      FDB_VERSION: ${{ matrix.fdb }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: erlef/setup-beam@v1
-        with:
-          otp-version: ${{matrix.otp}}
-      - name: Install FoundationDB
-        run: |
-          wget https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-clients_${FDB_VERSION}-1_amd64.deb
-          wget https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-server_${FDB_VERSION}-1_amd64.deb
-          sudo dpkg -i foundationdb-clients_${FDB_VERSION}-1_amd64.deb
-          sudo dpkg -i foundationdb-server_${FDB_VERSION}-1_amd64.deb
-      - name: Dialyzer
-        run: rebar3 dialyzer
-
-  eunit:
-    runs-on: ubuntu-20.04
-    name: eunit / OTP ${{matrix.otp}} / FDB ${{matrix.fdb}}
-    strategy:
-      matrix:
-        otp: ["25", "27.0.1"]
-        fdb: ["7.2.2", "7.3.42"]
-    env:
-      FDB_VERSION: ${{ matrix.fdb }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: erlef/setup-beam@v1
-        with:
-          otp-version: ${{matrix.otp}}
-      - name: Install FoundationDB
-        run: |
-          wget https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-clients_${FDB_VERSION}-1_amd64.deb
-          wget https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-server_${FDB_VERSION}-1_amd64.deb
-          sudo dpkg -i foundationdb-clients_${FDB_VERSION}-1_amd64.deb
-          sudo dpkg -i foundationdb-server_${FDB_VERSION}-1_amd64.deb
-      - name: EUnit tests
-        run: rebar3 eunit
-
-  binding_tester:
-    runs-on: ubuntu-20.04
-    strategy:
-      matrix:
-        otp: ["27.0.1"]
-        fdb: ["7.3.42"]
-    env:
-      FDB_VERSION: ${{ matrix.fdb }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: erlef/setup-beam@v1
-        with:
-          otp-version: ${{matrix.otp}}
+        if: ${{ matrix.fmt }}
       - name: Install FoundationDB
         run: |
           wget https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-clients_${FDB_VERSION}-1_amd64.deb
@@ -94,8 +53,13 @@ jobs:
           sudo dpkg -i foundationdb-clients_${FDB_VERSION}-1_amd64.deb
           sudo dpkg -i foundationdb-server_${FDB_VERSION}-1_amd64.deb
           fdbcli --exec 'configure tenant_mode=optional_experimental'
+        if: ${{ matrix.dialyzer || matrix.eunit || matrix.binding_tester }}
+      - name: Run dialyzer
+        run: rebar3 dialyzer
+        if: ${{ matrix.dialyzer }}
       - name: EUnit tests
         run: rebar3 eunit
+        if: ${{ matrix.eunit }}
       - name: Binding Tester
         env:
           ERL_LIBS: _build/test/lib/erlfdb/
@@ -110,7 +74,28 @@ jobs:
           pip3 install --user -Iv foundationdb==${{ env.FDB_VERSION }}
           pip3 show foundationdb
           ./test/loop.sh
-
+        if: ${{ matrix.binding_tester }}
+  macos:
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        include:
+          - fdb: "7.3.42"
+            eunit: true
+    name: "macOS / FDB ${{ matrix.fdb }} (${{ matrix.eunit && 'eunit' || '' }})"
+    env:
+      FDB_VERSION: ${{ matrix.fdb }}
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install
+        run: |
+          brew update
+          brew install erlang rebar3
+          curl -L "https://github.com/apple/foundationdb/releases/download/${{ env.FDB_VERSION }}/FoundationDB-${{ env.FDB_VERSION }}_arm64.pkg" > "FoundationDB-${{ env.FDB_VERSION }}.pkg"
+          sudo installer  -allowUntrusted -verboseR -pkg "FoundationDB-${{ env.FDB_VERSION }}.pkg" -target /
+      - name: EUnit tests
+        run: rebar3 eunit
+        if: ${{ matrix.eunit }}
 #        test-name: [api, directory, directory_hca, tuple]
 #        api-version: [610, 620, 630]
 #        include:

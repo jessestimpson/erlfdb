@@ -1033,7 +1033,7 @@ maybe_cover_compile() ->
         Cover when Cover == false; Cover == "" ->
             ok;
         _ ->
-            cover:compile_beam_directory(code:lib_dir(erlfdb, ebin))
+            cover:compile_beam_directory(filename:join(code:lib_dir(erlfdb), "ebin"))
     end.
 
 maybe_write_coverdata(Prefix, APIVsn) ->
