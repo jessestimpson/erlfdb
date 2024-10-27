@@ -19,7 +19,7 @@ index 30a0b72fa..227386610 100644
      'java_async': Tester('java', _java_cmd + 'AsyncStackTester', 2040, 510, MAX_API_VERSION, types=ALL_TYPES, tenants_enabled=True),
      'go': Tester('go', _absolute_path('go/build/bin/_stacktester'), 2040, 200, MAX_API_VERSION, types=ALL_TYPES),
      'flow': Tester('flow', _absolute_path('flow/bin/fdb_flow_tester'), 63, 500, MAX_API_VERSION, directory_snapshot_ops_enabled=False),
-+    'erlang': Tester('erlang', './test/tester.es', 2040, 730, MAX_API_VERSION, types=ALL_TYPES, tenants_enabled=False)
++    'erlang': Tester('erlang', './test/bindingtester/tester.es', 2040, 730, MAX_API_VERSION, types=ALL_TYPES, tenants_enabled=False)
  }
 diff --git a/bindings/python/tests/tester.py b/bindings/python/tests/tester.py
 index a856727b4..49f6cb5a4 100644

@@ -12,7 +12,7 @@ This project also provides a conforming implementation of the [Tuple] and
 [Tuple]: https://github.com/apple/foundationdb/blob/master/design/tuple.md
 [Directory]: https://apple.github.io/foundationdb/developer-guide.html#directories
 
-The original development of this project occurred as [apache/couchdb-erlfdb](https://github.com/apache/couchdb-erlfdb). This fork
+This project originated as [apache/couchdb-erlfdb](https://github.com/apache/couchdb-erlfdb). This fork
 was created in early 2024 to continue development of the project.
 
 ## Building
@@ -62,5 +62,5 @@ not_found
 ## Binding Tester
 
 FoundationDB has a custom binding tester that can be used to test whether
-changes have broken compatibility. See the [BINDING_TESTER](BINDING_TESTER.md)
-documentation for instructions on building and running that system.
+changes have broken compatibility. The GitHub Action runs the Binding Tester
+against the most recent supported version of FoundationDB.
