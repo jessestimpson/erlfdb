@@ -12,7 +12,7 @@
 
 -module(erlfdb).
 
--if(OTP_RELEASE >= 27).
+-if(DOCATTRS).
 -moduledoc """
 This module defines the primary API for interacting with a FoundationDB database.
 """.
