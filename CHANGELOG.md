@@ -1,5 +1,12 @@
 # Changelog for v0.x
 
+## v0.2.1 (TBD)
+
+### Testing
+
+  * The FDB Bindings Tester now runs under GitHub Actions
+  * Added macOS GitHub Action
+
 ## v0.2.0 (2024-09-21)
 
 ### Bug fixes
@@ -9,7 +16,7 @@
 ### Enhancements
 
   * `erlfdb:wait_for_all_interleaving/2`: Given a list of fold_future() or future(), calling this function will wait
-    on the futures at once, and then continue to issue any remaning get_range or get_mapped_range until
+    on the futures at once, and then continue to issue any remaining get_range or get_mapped_range until
     the result set is exhausted. This allows fdbserver to process multiple get_ranges at the same time,
     in a pipelined fashion.
   * `erlfdb:get_range_split_points/4`: Companion to `wait_for_all_interleaving`, this is an fdbserver-supported function
