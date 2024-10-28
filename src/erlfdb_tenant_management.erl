@@ -1,5 +1,17 @@
 -module(erlfdb_tenant_management).
 
+-define(DOCATTRS, ?OTP_RELEASE >= 27).
+
+-if(?DOCATTRS).
+-moduledoc """
+Managing [Tenants](https://apple.github.io/foundationdb/tenants.html)
+
+> #### Warning {: .warning}
+>
+> Tenants are currently experimental and are not recommended for use in production.
+""".
+-endif.
+
 -export([
     transactional/2, list_tenants/1, list_tenants/4, get_tenant/2, create_tenant/2, delete_tenant/2
 ]).

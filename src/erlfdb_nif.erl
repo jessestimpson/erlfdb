@@ -12,6 +12,18 @@
 
 -module(erlfdb_nif).
 
+-define(DOCATTRS, ?OTP_RELEASE >= 27).
+
+-if(?DOCATTRS).
+-moduledoc """
+The NIF wrapper around all FoundationDB C API function calls.
+
+> #### Tip {: .tip}
+>
+> Use `m:erlfdb` instead.
+""".
+-endif.
+
 -compile(no_native).
 -on_load(init/0).
 

@@ -12,6 +12,14 @@
 
 -module(erlfdb_directory).
 
+-define(DOCATTRS, ?OTP_RELEASE >= 27).
+
+-if(?DOCATTRS).
+-moduledoc """
+[Directory Layer](https://apple.github.io/foundationdb/developer-guide.html#directories)
+""".
+-endif.
+
 -export([
     root/0,
     root/1,

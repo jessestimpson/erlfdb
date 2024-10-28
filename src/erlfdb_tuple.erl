@@ -12,6 +12,16 @@
 
 -module(erlfdb_tuple).
 
+-define(DOCATTRS, ?OTP_RELEASE >= 27).
+
+-if(?DOCATTRS).
+-moduledoc """
+[Tuple Layer](https://github.com/apple/foundationdb/blob/main/design/tuple.md)
+
+[Data Modeling with Tuples](https://apple.github.io/foundationdb/data-modeling.html#data-modeling-tuples)
+""".
+-endif.
+
 -export([
     pack/1,
     pack/2,
@@ -74,7 +84,7 @@
 % UUIDs: single code byte followed by 16 bytes
 -define(UUID, 16#30).
 
-% 64 bit identifer
+% 64 bit identifier
 -define(ID64, 16#31).
 
 % 80 bit VersionStamp: 8 byte integer, 2 byte batch
@@ -91,17 +101,97 @@
 -define(UNSET_VERSIONSTAMP80, <<16#FFFFFFFFFFFFFFFFFFFF:80>>).
 -define(UNSET_VERSIONSTAMP96, <<16#FFFFFFFFFFFFFFFFFFFF:80, _:16>>).
 
+-if(?DOCATTRS).
+-doc """
+Encodes the tuple into a binary.
+
+## Supported Erlang types
+
+- `t:binary/0`: Encodes as binary blob.
+- `t:integer/0`: Encodes as variable-length integer.
+- `t:float/0`: Encodes as 64-bit floating point (double).
+- `t:tuple/0`: Encodes as nested tuple.
+
+## Special types
+
+- `null`: Encodes as NULL char (`16#0`)  instead of as an atom.
+- `t:boolean/0`: Encodes as a boolean instead of as an atom.
+- `{utf8, float()}`: Encodes `Bin` as UTF-8 string.
+- `{float, float()}`: Advanced floating point encoding. See `m:erlfdb_float`.
+- `{float, _, float()}`: Advanced floating point encoding. See `m:erlfdb_float`.
+- `{double, _, float()}`: Advanced floating point encoding. See `m:erlfdb_float`.
+- `{uuid, binary()}`: Encodes a binary of size == 16 as a UUID type.
+- `{id64, integer()}`: Encodes a fixed-length 64-bit integer.
+
+## Unsupported Erlang types
+
+- `t:atom/0`
+- `t:list/0`
+- `t:reference/0`
+- `t:pid/0`
+- `t:function/0`
+- `t:map/0`
+
+## Examples
+
+```erlang
+1> erlfdb_tuple:pack({}).
+<<>>
+```
+
+```erlang
+1> erlfdb_tuple:pack({<<"hello">>, 42}).
+<<1,104,101,108,108,111,0,21,42>>
+```
+""".
+-endif.
 pack(Tuple) when is_tuple(Tuple) ->
     pack(Tuple, <<>>).
 
+-if(?DOCATTRS).
+-doc """
+Encodes the prefix and tuple into a binary.
+
+## Examples
+
+```erlang
+1> erlfdb_tuple:pack({}, <<"foo">>).
+<<"foo">>
+```
+
+```erlang
+1> erlfdb_tuple:pack({<<"foo">>}, <<>>).
+<<1,102,111,111,0>>
+```
+
+```erlang
+1> erlfdb_tuple:pack({<<"hello">>, 42}, <<"foo">>).
+<<102,111,111,1,104,101,108,108,111,0,21,42>>
+```
+""".
+-endif.
 pack(Tuple, Prefix) ->
     Elems = tuple_to_list(Tuple),
     Encoded = [encode(E, 0) || E <- Elems],
     iolist_to_binary([Prefix | Encoded]).
 
+-if(?DOCATTRS).
+-doc """
+With versionstamps, encodes the tuple into a binary.
+
+## Special types
+- `{versionstamp, Id, Batch}`: Versionstamp encoding
+- `{versionstamp, Id, Batch, Tx}`: Versionstamp encoding
+""".
+-endif.
 pack_vs(Tuple) ->
     pack_vs(Tuple, <<>>).
 
+-if(?DOCATTRS).
+-doc """
+With versionstamps, encodes the prefix and tuple into a binary.
+""".
+-endif.
 pack_vs(Tuple, Prefix) ->
     Elems = tuple_to_list(Tuple),
     Encoded = [encode(E, 0) || E <- Elems],
@@ -115,9 +205,43 @@ pack_vs(Tuple, Prefix) ->
             erlang:error(E)
     end.
 
+-if(?DOCATTRS).
+-doc """
+Decodes the binary into a tuple.
+
+## Examples
+
+```erlang
+1> erlfdb_tuple:unpack(erlfdb_tuple:pack({})).
+{}
+```
+
+```erlang
+1> erlfdb_tuple:unpack(erlfdb_tuple:pack({<<"hello">>, 42})).
+{<<"hello">>,42}
+```
+""".
+-endif.
 unpack(Binary) ->
     unpack(Binary, <<>>).
 
+-if(?DOCATTRS).
+-doc """
+Decodes the binary into a prefix and tuple.
+
+## Examples
+
+```erlang
+1> erlfdb_tuple:unpack(erlfdb_tuple:pack({}, <<"foo">>), <<"foo">>).
+{}
+```
+
+```erlang
+1> erlfdb_tuple:unpack(erlfdb_tuple:pack({<<"hello">>, 42}, <<"foo">>), <<"foo">>).
+{<<"hello">>,42}
+```
+""".
+-endif.
 unpack(Binary, Prefix) ->
     PrefixLen = size(Prefix),
     case Binary of
@@ -133,15 +257,45 @@ unpack(Binary, Prefix) ->
             erlang:error(E)
     end.
 
-% Returns a {StartKey, EndKey} pair of binaries
-% that includes all possible sub-tuples
+-if(?DOCATTRS).
+-doc """
+Returns a `{StartKey, EndKey}` pair of binaries that includes all possible sub-tuples.
+""".
+-endif.
 range(Tuple) ->
     range(Tuple, <<>>).
 
+-if(?DOCATTRS).
+-doc """
+With prefix, returns a `{StartKey, EndKey}` pair of binaries that includes all possible sub-tuples.
+""".
+-endif.
 range(Tuple, Prefix) ->
     Base = pack(Tuple, Prefix),
     {<<Base/binary, 16#00>>, <<Base/binary, 16#FF>>}.
 
+-if(?DOCATTRS).
+-doc """
+Compares 2 Erlang tuples with the ordering defined by the tuple layer.
+
+## Return
+
+- `0` if both tuples compare as equal.
+- `-1` if the left tuple is less than the right tuple.
+- `1` if the left tuple is greater than the right tuple.
+
+## Examples
+
+The ordering isn't equivalent to the Erlang term ordering:
+
+```erlang
+1> lists:sort(fun(A, B) -> erlfdb_tuple:compare(A, B) =< 0 end, [{1}, {null}]).
+[{null},{1}]
+2> lists:sort([{1}, {null}]).
+[{1},{null}]
+```
+""".
+-endif.
 compare(A, B) when is_tuple(A), is_tuple(B) ->
     AElems = tuple_to_list(A),
     BElems = tuple_to_list(B),
