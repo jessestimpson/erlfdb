@@ -16,6 +16,12 @@
 % as this excellent blog post describing the logic:
 %    https://ananthakumaran.in/2018/08/05/high-contention-allocator.html
 
+-define(DOCATTRS, ?OTP_RELEASE >= 27).
+
+-if(?DOCATTRS).
+-moduledoc hidden.
+-endif.
+
 -export([
     create/1,
     allocate/2

@@ -211,6 +211,7 @@ case MaxAPIVersion of
 end.
 
 ErlOpts = proplists:get_value(erl_opts, CONFIG, []).
+CONFIG1 = proplists:delete(erl_opts, CONFIG).
 
 [
     {erl_opts, ErlOpts ++ [{d, erlfdb_api_version, MaxAPIVersion}]},
@@ -254,4 +255,4 @@ ErlOpts = proplists:get_value(erl_opts, CONFIG, []).
             "$LDFLAGS /LIBPATH:\"c:/Program Files/foundationdb/lib/foundationdb\" fdb_c.lib"
         }
     ]}
-] ++ CONFIG.
+] ++ CONFIG1.

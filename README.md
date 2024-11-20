@@ -2,33 +2,110 @@
 
 [![CI](https://github.com/foundationdb-beam/erlfdb/actions/workflows/ci.yml/badge.svg)](https://github.com/foundationdb-beam/erlfdb/actions/workflows/ci.yml)
 
-This project is a NIF wrapper for the FoundationDB C API. Documentation on
-the main API can be found [here][fdb_docs].
+An Erlang library that wraps the [FoundationDB C API](https://apple.github.io/foundationdb/api-c.html) with a NIF.
 
-This project also provides a conforming implementation of the [Tuple] and
-[Directory] layers.
+We also provide a conforming implementation of the [Tuple] and [Directory] layers.
 
-[fdb_docs]: https://apple.github.io/foundationdb/api-c.html
 [Tuple]: https://github.com/apple/foundationdb/blob/master/design/tuple.md
 [Directory]: https://apple.github.io/foundationdb/developer-guide.html#directories
 
 This project originated as [apache/couchdb-erlfdb](https://github.com/apache/couchdb-erlfdb). This fork
-was created in early 2024 to continue development of the project.
+was created in early 2024 to continue development.
 
-## Building
+## Dependencies
 
-Assuming you have installed the FoundationDB C API library, building erlfdb
-is as simple as:
+Refer to FoundationDB's [Getting Started on Linux] or [Getting Started on macOS].
+
+[Getting Started on Linux]: https://apple.github.io/foundationdb/getting-started-linux.html
+[Getting Started on macOS]: https://apple.github.io/foundationdb/getting-started-mac.html
+
+Install the foundationdb-clients package to run erlfdb as a client to an existing
+FoundationDB database.
+
+Install the foundationdb-server package for running a test fdbserver on your local device.
+This package is required to run the unit tests.
+
+## Usage
+
+<!-- tabs-open -->
+
+### Erlang's rebar3
+
+Add erlfdb as a dependency in your Erlang project's rebar.config:
+
+```erlang
+% rebar.config
+{deps, [
+    {erlfdb, "0.2.1"}
+]}.
+```
+
+### Elixir's Mix
+
+Add erlfdb as a dependency in your Elixir project's mix.exs:
+
+```elixir
+# mix.exs
+defp deps do
+  [
+    {:erlfdb, "~> 0.2"}
+  ]
+end
+```
+
+<!-- tabs-close -->
+
+### Example
+
+A simple example showing how to open a database and read and write keys.
+
+See the [erlfdb Documentation](https://hexdocs.pm/erlfdb/erlfdb.html) for more.
+
+<!-- tabs-open -->
+
+### Erlang
+
+```erlang
+1> Db = erlfdb:open(<<"/usr/local/etc/foundationdb/fdb.cluster">>).
+{erlfdb_database,#Ref<0.2859661758.3941466120.85406>}
+2> ok = erlfdb:set(Db, <<"foo">>, <<"bar">>).
+ok
+3> erlfdb:get(Db, <<"foo">>).
+<<"bar">>
+4> erlfdb:get(Db, <<"bar">>).
+not_found
+```
+
+### Elixir
+
+```elixir
+iex> db = :erlfdb.open("/usr/local/etc/foundationdb/fdb.cluster")
+{:erlfdb_database, #Reference<0.2859661758.3941466120.85406>}
+iex> :ok = :erlfdb.set(db, "foo", "bar")
+:ok
+iex> :erlfdb.get(db, "foo")
+"bar"
+iex> :erlfdb.get(db, "bar")
+:not_found
+```
+
+<!-- tabs-close -->
+
+## Binding Tester
+
+FoundationDB has a custom binding tester that can be used to test whether
+changes have broken compatibility. The GitHub Action runs the Binding Tester
+against the most recent supported version of FoundationDB.
+
+## Developing erlfdb
+
+### Building
 
     $ rebar3 compile
 
-Alternatively, adding erlfdb as a rebar dependency should Just Work ®.
+### Testing
 
-Documentation for installing FoundationDB can be found [here for macOS]
-or [here for Linux].
-
-[here for macOS]: https://apple.github.io/foundationdb/getting-started-mac.html
-[here for Linux]: https://apple.github.io/foundationdb/getting-started-linux.html
+    # rebar3 eunit
 
 ### Bypassing dependency checks
 
@@ -41,26 +118,3 @@ this for the `fmt` command, which does not do a compile action.
 ```bash
 ERLFDB_ASSERT_FDBCLI=0 rebar3 fmt
 ```
-
-## Quick Example
-
-A simple example showing how to open a database and read and write keys:
-
-```erlang
-
-Eshell V9.3.3.6  (abort with ^G)
-1> Db = erlfdb:open(<<"/usr/local/etc/foundationdb/fdb.cluster">>).
-{erlfdb_database,#Ref<0.2859661758.3941466120.85406>}
-2> ok = erlfdb:set(Db, <<"foo">>, <<"bar">>).
-ok
-3> erlfdb:get(Db, <<"foo">>).
-<<"bar">>
-4> erlfdb:get(Db, <<"bar">>).
-not_found
-```
-
-## Binding Tester
-
-FoundationDB has a custom binding tester that can be used to test whether
-changes have broken compatibility. The GitHub Action runs the Binding Tester
-against the most recent supported version of FoundationDB.

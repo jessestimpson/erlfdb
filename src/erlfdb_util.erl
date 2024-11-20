@@ -12,6 +12,12 @@
 
 -module(erlfdb_util).
 
+-define(DOCATTRS, ?OTP_RELEASE >= 27).
+
+-if(?DOCATTRS).
+-moduledoc hidden.
+-endif.
+
 -export([
     get_test_db/0,
     get_test_db/1,

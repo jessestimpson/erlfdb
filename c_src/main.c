@@ -21,7 +21,7 @@
 #include "resources.h"
 #include "util.h"
 
-// FoundationDB can only be intiailized once
+// FoundationDB can only be initialized once
 // in a given OS process. By creating a random
 // atom we can flag whether erlfdb was previously
 // initialized in a given Erlang VM.

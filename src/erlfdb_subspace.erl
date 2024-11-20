@@ -12,6 +12,14 @@
 
 -module(erlfdb_subspace).
 
+-define(DOCATTRS, ?OTP_RELEASE >= 27).
+
+-if(?DOCATTRS).
+-moduledoc """
+[Subspace Layer](https://apple.github.io/foundationdb/developer-guide.html#subspaces)
+""".
+-endif.
+
 -record(erlfdb_subspace, {
     prefix
 }).

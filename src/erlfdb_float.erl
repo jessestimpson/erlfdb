@@ -12,6 +12,14 @@
 
 -module(erlfdb_float).
 
+-define(DOCATTRS, ?OTP_RELEASE >= 27).
+
+-if(?DOCATTRS).
+-moduledoc """
+Advanced floating point number encoding for `m:erlfdb_tuple`.
+""".
+-endif.
+
 -export([
     decode/1,
     encode/1
