@@ -19,6 +19,8 @@
 -endif.
 
 -export([
+    fdbcli/1,
+
     get_test_db/0,
     get_test_db/1,
 
@@ -285,14 +287,28 @@ get_monitor_path() ->
         end,
     filename:join(PrivDir, "monitor.py").
 
+% Look for fdbcli on PATH, but also check /usr/local/bin explicitly
+% since that is the common location.
+fdbcli(Options) ->
+    case ?MODULE:get(Options, fdbcli_bin, false) of
+        false ->
+            case os:find_executable("fdbcli") of
+                false ->
+                    case os:find_executable("fdbcli", "/usr/local/bin") of
+                        false ->
+                            erlang:error(fdbcli_not_found);
+                        Exec ->
+                            Exec
+                    end;
+                _Exec ->
+                    "fdbcli"
+            end;
+        C ->
+            C
+    end.
+
 init_fdb_db(ClusterFile, Options) ->
-    DefaultFDBCli = os:find_executable("fdbcli"),
-    FDBCli =
-        case ?MODULE:get(Options, fdbcli_bin, DefaultFDBCli) of
-            false -> erlang:error(fdbcli_not_found);
-            DefaultFDBCli -> "fdbcli";
-            FDBCli0 -> FDBCli0
-        end,
+    FDBCli = fdbcli(Options),
     Storage = get_storage(),
     Fmt =
         "~s -C ~s --exec \"configure new single ~s tenant_mode=optional_experimental\"",
