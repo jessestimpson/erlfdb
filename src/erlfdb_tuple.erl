@@ -122,6 +122,8 @@ Encodes the tuple into a binary.
 - `{double, _, float()}`: Advanced floating point encoding. See `m:erlfdb_float`.
 - `{uuid, binary()}`: Encodes a binary of size == 16 as a UUID type.
 - `{id64, integer()}`: Encodes a fixed-length 64-bit integer.
+- `{versionstamp, Id, Batch}`: Versionstamp encoding. For unset versionstamps use `pack_vs/1`.
+- `{versionstamp, Id, Batch, Tx}`: Versionstamp encoding. For unset versionstamps use `pack_vs/1`.
 
 ## Unsupported Erlang types
 
