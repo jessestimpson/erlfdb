@@ -267,6 +267,34 @@ get_mapped_range_continuation_test() ->
             ok
     end.
 
+flush_foregone_futures_test() ->
+    Db = erlfdb_util:get_test_db(),
+    Tenant = erlfdb_util:create_and_open_test_tenant(Db, [empty]),
+    erlfdb:transactional(Tenant, fun(Tx) -> erlfdb:set(Tx, <<"hello">>, <<"world">>) end),
+    erlfdb:transactional(Tenant, fun(Tx) ->
+        case erlfdb:get_last_error() of
+            undefined ->
+                erlfdb:get(Tx, <<"hello">>),
+                timer:sleep(10),
+                % Fake not_committed
+                erlang:error({erlfdb_error, 1020});
+            _ ->
+                erlfdb:wait(erlfdb:get(Tx, <<"hello">>))
+        end
+    end),
+    Leaks = fun FlushReady(Acc) ->
+        receive
+            Msg = {_, ready} ->
+                FlushReady([Msg | Acc])
+        after 0 ->
+            lists:reverse(Acc)
+        end
+    end(
+        []
+    ),
+
+    ?assertMatch([], Leaks).
+
 get_set_get(DbOrTenant) ->
     Key = gen_key(8),
     Val = crypto:strong_rand_bytes(8),
