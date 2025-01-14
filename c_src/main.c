@@ -61,6 +61,7 @@ static void *erlfdb_network_thread(void *arg) {
 static void erlfdb_future_cb(FDBFuture *fdb_future, void *data) {
     ErlFDBFuture *future = (ErlFDBFuture *)data;
     ErlNifEnv *caller;
+    ERL_NIF_TERM key;
     ERL_NIF_TERM msg;
 
     // FoundationDB callbacks can fire from the thread
@@ -76,7 +77,13 @@ static void erlfdb_future_cb(FDBFuture *fdb_future, void *data) {
     enif_mutex_lock(future->lock);
 
     if (!future->cancelled) {
-        msg = T2(future->msg_env, future->msg_ref, ATOM_ready);
+        if (IS_ATOM(future->tx_ref, false)) {
+            key = future->msg_ref;
+        } else {
+            key = T2(future->msg_env, future->tx_ref, future->msg_ref);
+        }
+
+        msg = T2(future->msg_env, key, ATOM_ready);
         enif_send(caller, &(future->pid), future->msg_env, msg);
     }
 
@@ -91,7 +98,7 @@ static void erlfdb_future_cb(FDBFuture *fdb_future, void *data) {
     return;
 }
 
-static ERL_NIF_TERM erlfdb_create_future(ErlNifEnv *env, FDBFuture *future,
+static ERL_NIF_TERM erlfdb_create_future(ErlNifEnv *env, ERL_NIF_TERM *tx_ref, FDBFuture *future,
                                          ErlFDBFutureType ftype) {
     ErlFDBFuture *f;
     ERL_NIF_TERM ref = enif_make_ref(env);
@@ -104,6 +111,11 @@ static ERL_NIF_TERM erlfdb_create_future(ErlNifEnv *env, FDBFuture *future,
     enif_self(env, &(f->pid));
     f->pid_env = env;
     f->msg_env = enif_alloc_env();
+    if (tx_ref != NULL) {
+        f->tx_ref = enif_make_copy(f->msg_env, *tx_ref);
+    } else {
+        f->tx_ref = ATOM_false;
+    }
     f->msg_ref = enif_make_copy(f->msg_env, ref);
     f->lock = enif_mutex_create("fdb:future_lock");
     f->cancelled = false;
@@ -1185,6 +1197,7 @@ static ERL_NIF_TERM
 erlfdb_transaction_get_read_version(ErlNifEnv *env, int argc,
                                     const ERL_NIF_TERM argv[]) {
     ErlFDBSt *st = (ErlFDBSt *)enif_priv_data(env);
+    ERL_NIF_TERM tx_ref;
     ErlFDBTransaction *t;
     FDBFuture *future;
     void *res;
@@ -1197,7 +1210,9 @@ erlfdb_transaction_get_read_version(ErlNifEnv *env, int argc,
         return enif_make_badarg(env);
     }
 
-    if (!enif_get_resource(env, argv[0], ErlFDBTransactionRes, &res)) {
+    tx_ref = argv[0];
+
+    if (!enif_get_resource(env, tx_ref, ErlFDBTransactionRes, &res)) {
         return enif_make_badarg(env);
     }
     t = (ErlFDBTransaction *)res;
@@ -1208,12 +1223,13 @@ erlfdb_transaction_get_read_version(ErlNifEnv *env, int argc,
 
     future = fdb_transaction_get_read_version(t->transaction);
 
-    return erlfdb_create_future(env, future, ErlFDB_FT_INT64);
+    return erlfdb_create_future(env, &tx_ref, future, ErlFDB_FT_INT64);
 }
 
 static ERL_NIF_TERM erlfdb_transaction_get(ErlNifEnv *env, int argc,
                                            const ERL_NIF_TERM argv[]) {
     ErlFDBSt *st = (ErlFDBSt *)enif_priv_data(env);
+    ERL_NIF_TERM tx_ref;
     ErlFDBTransaction *t;
     ErlNifBinary key;
     fdb_bool_t snapshot;
@@ -1228,7 +1244,9 @@ static ERL_NIF_TERM erlfdb_transaction_get(ErlNifEnv *env, int argc,
         return enif_make_badarg(env);
     }
 
-    if (!enif_get_resource(env, argv[0], ErlFDBTransactionRes, &res)) {
+    tx_ref = argv[0];
+
+    if (!enif_get_resource(env, tx_ref, ErlFDBTransactionRes, &res)) {
         return enif_make_badarg(env);
     }
     t = (ErlFDBTransaction *)res;
@@ -1248,7 +1266,7 @@ static ERL_NIF_TERM erlfdb_transaction_get(ErlNifEnv *env, int argc,
     future = fdb_transaction_get(t->transaction, (uint8_t *)key.data, key.size,
                                  snapshot);
 
-    return erlfdb_create_future(env, future, ErlFDB_FT_VALUE);
+    return erlfdb_create_future(env, &tx_ref, future, ErlFDB_FT_VALUE);
 }
 
 #if FDB_API_VERSION >= 630
@@ -1256,6 +1274,7 @@ static ERL_NIF_TERM
 erlfdb_transaction_get_estimated_range_size(ErlNifEnv *env, int argc,
                                             const ERL_NIF_TERM argv[]) {
     ErlFDBSt *st = (ErlFDBSt *)enif_priv_data(env);
+    ERL_NIF_TERM tx_ref;
     ErlFDBTransaction *t;
     ErlNifBinary skey;
     ErlNifBinary ekey;
@@ -1270,7 +1289,9 @@ erlfdb_transaction_get_estimated_range_size(ErlNifEnv *env, int argc,
         return enif_make_badarg(env);
     }
 
-    if (!enif_get_resource(env, argv[0], ErlFDBTransactionRes, &res)) {
+    tx_ref = argv[0];
+
+    if (!enif_get_resource(env, tx_ref, ErlFDBTransactionRes, &res)) {
         return enif_make_badarg(env);
     }
     t = (ErlFDBTransaction *)res;
@@ -1291,13 +1312,14 @@ erlfdb_transaction_get_estimated_range_size(ErlNifEnv *env, int argc,
         t->transaction, (uint8_t *)skey.data, skey.size, (uint8_t *)ekey.data,
         ekey.size);
 
-    return erlfdb_create_future(env, future, ErlFDB_FT_INT64);
+    return erlfdb_create_future(env, &tx_ref, future, ErlFDB_FT_INT64);
 }
 #endif
 
 static ERL_NIF_TERM erlfdb_transaction_get_key(ErlNifEnv *env, int argc,
                                                const ERL_NIF_TERM argv[]) {
     ErlFDBSt *st = (ErlFDBSt *)enif_priv_data(env);
+    ERL_NIF_TERM tx_ref;
     ErlFDBTransaction *t;
     ErlNifBinary key;
     fdb_bool_t or_equal;
@@ -1314,7 +1336,9 @@ static ERL_NIF_TERM erlfdb_transaction_get_key(ErlNifEnv *env, int argc,
         return enif_make_badarg(env);
     }
 
-    if (!enif_get_resource(env, argv[0], ErlFDBTransactionRes, &res)) {
+    tx_ref = argv[0];
+
+    if (!enif_get_resource(env, tx_ref, ErlFDBTransactionRes, &res)) {
         return enif_make_badarg(env);
     }
     t = (ErlFDBTransaction *)res;
@@ -1334,13 +1358,14 @@ static ERL_NIF_TERM erlfdb_transaction_get_key(ErlNifEnv *env, int argc,
     future = fdb_transaction_get_key(t->transaction, (uint8_t *)key.data,
                                      key.size, or_equal, offset, snapshot);
 
-    return erlfdb_create_future(env, future, ErlFDB_FT_KEY);
+    return erlfdb_create_future(env, &tx_ref, future, ErlFDB_FT_KEY);
 }
 
 static ERL_NIF_TERM
 erlfdb_transaction_get_addresses_for_key(ErlNifEnv *env, int argc,
                                          const ERL_NIF_TERM argv[]) {
     ErlFDBSt *st = (ErlFDBSt *)enif_priv_data(env);
+    ERL_NIF_TERM tx_ref;
     ErlFDBTransaction *t;
     ErlNifBinary key;
     FDBFuture *future;
@@ -1354,7 +1379,9 @@ erlfdb_transaction_get_addresses_for_key(ErlNifEnv *env, int argc,
         return enif_make_badarg(env);
     }
 
-    if (!enif_get_resource(env, argv[0], ErlFDBTransactionRes, &res)) {
+    tx_ref = argv[0];
+
+    if (!enif_get_resource(env, tx_ref, ErlFDBTransactionRes, &res)) {
         return enif_make_badarg(env);
     }
     t = (ErlFDBTransaction *)res;
@@ -1370,12 +1397,13 @@ erlfdb_transaction_get_addresses_for_key(ErlNifEnv *env, int argc,
     future = fdb_transaction_get_addresses_for_key(
         t->transaction, (uint8_t *)key.data, key.size);
 
-    return erlfdb_create_future(env, future, ErlFDB_FT_STRING_ARRAY);
+    return erlfdb_create_future(env, &tx_ref, future, ErlFDB_FT_STRING_ARRAY);
 }
 
 static ERL_NIF_TERM erlfdb_transaction_get_range(ErlNifEnv *env, int argc,
                                                  const ERL_NIF_TERM argv[]) {
     ErlFDBSt *st = (ErlFDBSt *)enif_priv_data(env);
+    ERL_NIF_TERM tx_ref;
     ErlFDBTransaction *t;
 
     ErlNifBinary skey;
@@ -1404,7 +1432,9 @@ static ERL_NIF_TERM erlfdb_transaction_get_range(ErlNifEnv *env, int argc,
         return enif_make_badarg(env);
     }
 
-    if (!enif_get_resource(env, argv[0], ErlFDBTransactionRes, &res)) {
+    tx_ref = argv[0];
+
+    if (!enif_get_resource(env, tx_ref, ErlFDBTransactionRes, &res)) {
         return enif_make_badarg(env);
     }
     t = (ErlFDBTransaction *)res;
@@ -1464,13 +1494,14 @@ static ERL_NIF_TERM erlfdb_transaction_get_range(ErlNifEnv *env, int argc,
         (uint8_t *)ekey.data, ekey.size, eor_equal, eoffset, limit,
         target_bytes, mode, iteration, snapshot, reverse);
 
-    return erlfdb_create_future(env, future, ErlFDB_FT_KEYVALUE_ARRAY);
+    return erlfdb_create_future(env, &tx_ref, future, ErlFDB_FT_KEYVALUE_ARRAY);
 }
 
 static ERL_NIF_TERM
 erlfdb_transaction_get_range_split_points(ErlNifEnv *env, int argc,
                                           const ERL_NIF_TERM argv[]) {
     ErlFDBSt *st = (ErlFDBSt *)enif_priv_data(env);
+    ERL_NIF_TERM tx_ref;
     ErlFDBTransaction *t;
 
     ErlNifBinary skey;
@@ -1490,7 +1521,9 @@ erlfdb_transaction_get_range_split_points(ErlNifEnv *env, int argc,
         return enif_make_badarg(env);
     }
 
-    if (!enif_get_resource(env, argv[0], ErlFDBTransactionRes, &res)) {
+    tx_ref = argv[0];
+
+    if (!enif_get_resource(env, tx_ref, ErlFDBTransactionRes, &res)) {
         return enif_make_badarg(env);
     }
     t = (ErlFDBTransaction *)res;
@@ -1515,7 +1548,7 @@ erlfdb_transaction_get_range_split_points(ErlNifEnv *env, int argc,
         t->transaction, (uint8_t *)skey.data, skey.size, (uint8_t *)ekey.data,
         ekey.size, chunk_size);
 
-    return erlfdb_create_future(env, future, ErlFDB_FT_KEY_ARRAY);
+    return erlfdb_create_future(env, &tx_ref, future, ErlFDB_FT_KEY_ARRAY);
 }
 
 #if FDB_API_VERSION >= 730
@@ -1523,6 +1556,7 @@ static ERL_NIF_TERM
 erlfdb_transaction_get_mapped_range(ErlNifEnv *env, int argc,
                                     const ERL_NIF_TERM argv[]) {
     ErlFDBSt *st = (ErlFDBSt *)enif_priv_data(env);
+    ERL_NIF_TERM tx_ref;
     ErlFDBTransaction *t;
 
     ErlNifBinary skey;
@@ -1553,7 +1587,9 @@ erlfdb_transaction_get_mapped_range(ErlNifEnv *env, int argc,
         return enif_make_badarg(env);
     }
 
-    if (!enif_get_resource(env, argv[0], ErlFDBTransactionRes, &res)) {
+    tx_ref = argv[0];
+
+    if (!enif_get_resource(env, tx_ref, ErlFDBTransactionRes, &res)) {
         return enif_make_badarg(env);
     }
     t = (ErlFDBTransaction *)res;
@@ -1618,7 +1654,7 @@ erlfdb_transaction_get_mapped_range(ErlNifEnv *env, int argc,
         (uint8_t *)mapper.data, mapper.size, limit, target_bytes, mode,
         iteration, snapshot, reverse);
 
-    return erlfdb_create_future(env, future, ErlFDB_FT_MAPPEDKEYVALUE_ARRAY);
+    return erlfdb_create_future(env, &tx_ref, future, ErlFDB_FT_MAPPEDKEYVALUE_ARRAY);
 }
 #else
 static ERL_NIF_TERM
@@ -1832,6 +1868,7 @@ static ERL_NIF_TERM erlfdb_transaction_atomic_op(ErlNifEnv *env, int argc,
 static ERL_NIF_TERM erlfdb_transaction_commit(ErlNifEnv *env, int argc,
                                               const ERL_NIF_TERM argv[]) {
     ErlFDBSt *st = (ErlFDBSt *)enif_priv_data(env);
+    ERL_NIF_TERM tx_ref;
     ErlFDBTransaction *t;
     FDBFuture *future;
     void *res;
@@ -1844,7 +1881,9 @@ static ERL_NIF_TERM erlfdb_transaction_commit(ErlNifEnv *env, int argc,
         return enif_make_badarg(env);
     }
 
-    if (!enif_get_resource(env, argv[0], ErlFDBTransactionRes, &res)) {
+    tx_ref = argv[0];
+
+    if (!enif_get_resource(env, tx_ref, ErlFDBTransactionRes, &res)) {
         return enif_make_badarg(env);
     }
     t = (ErlFDBTransaction *)res;
@@ -1855,7 +1894,7 @@ static ERL_NIF_TERM erlfdb_transaction_commit(ErlNifEnv *env, int argc,
 
     future = fdb_transaction_commit(t->transaction);
 
-    return erlfdb_create_future(env, future, ErlFDB_FT_VOID);
+    return erlfdb_create_future(env, &tx_ref, future, ErlFDB_FT_VOID);
 }
 
 static ERL_NIF_TERM
@@ -1898,6 +1937,7 @@ static ERL_NIF_TERM
 erlfdb_transaction_get_versionstamp(ErlNifEnv *env, int argc,
                                     const ERL_NIF_TERM argv[]) {
     ErlFDBSt *st = (ErlFDBSt *)enif_priv_data(env);
+    ERL_NIF_TERM tx_ref;
     ErlFDBTransaction *t;
     FDBFuture *future;
     void *res;
@@ -1910,7 +1950,9 @@ erlfdb_transaction_get_versionstamp(ErlNifEnv *env, int argc,
         return enif_make_badarg(env);
     }
 
-    if (!enif_get_resource(env, argv[0], ErlFDBTransactionRes, &res)) {
+    tx_ref = argv[0];
+
+    if (!enif_get_resource(env, tx_ref, ErlFDBTransactionRes, &res)) {
         return enif_make_badarg(env);
     }
     t = (ErlFDBTransaction *)res;
@@ -1921,12 +1963,13 @@ erlfdb_transaction_get_versionstamp(ErlNifEnv *env, int argc,
 
     future = fdb_transaction_get_versionstamp(t->transaction);
 
-    return erlfdb_create_future(env, future, ErlFDB_FT_KEY);
+    return erlfdb_create_future(env, &tx_ref, future, ErlFDB_FT_KEY);
 }
 
 static ERL_NIF_TERM erlfdb_transaction_watch(ErlNifEnv *env, int argc,
                                              const ERL_NIF_TERM argv[]) {
     ErlFDBSt *st = (ErlFDBSt *)enif_priv_data(env);
+    ERL_NIF_TERM tx_ref;
     ErlFDBTransaction *t;
     ErlNifBinary key;
     FDBFuture *future;
@@ -1940,7 +1983,9 @@ static ERL_NIF_TERM erlfdb_transaction_watch(ErlNifEnv *env, int argc,
         return enif_make_badarg(env);
     }
 
-    if (!enif_get_resource(env, argv[0], ErlFDBTransactionRes, &res)) {
+    tx_ref = argv[0];
+
+    if (!enif_get_resource(env, tx_ref, ErlFDBTransactionRes, &res)) {
         return enif_make_badarg(env);
     }
     t = (ErlFDBTransaction *)res;
@@ -1964,12 +2009,18 @@ static ERL_NIF_TERM erlfdb_transaction_watch(ErlNifEnv *env, int argc,
         fdb_transaction_watch(t->transaction, (uint8_t *)key.data, key.size);
 
     t->has_watches = true;
-    return erlfdb_create_future(env, future, ErlFDB_FT_VOID);
+
+    // A watch's future is not tied to the transaction. This allows
+    // {reference(), ready} messages to be delivered to a caller's message
+    // queue, and must be handled. For example, if called by a gen_server,
+    // {reference(), ready} will appear in the handle_info.
+    return erlfdb_create_future(env, NULL, future, ErlFDB_FT_VOID);
 }
 
 static ERL_NIF_TERM erlfdb_transaction_on_error(ErlNifEnv *env, int argc,
                                                 const ERL_NIF_TERM argv[]) {
     ErlFDBSt *st = (ErlFDBSt *)enif_priv_data(env);
+    ERL_NIF_TERM tx_ref;
     ErlFDBTransaction *t;
     int erl_err;
     fdb_error_t fdb_err;
@@ -1984,7 +2035,9 @@ static ERL_NIF_TERM erlfdb_transaction_on_error(ErlNifEnv *env, int argc,
         return enif_make_badarg(env);
     }
 
-    if (!enif_get_resource(env, argv[0], ErlFDBTransactionRes, &res)) {
+    tx_ref = argv[0];
+
+    if (!enif_get_resource(env, tx_ref, ErlFDBTransactionRes, &res)) {
         return enif_make_badarg(env);
     }
     t = (ErlFDBTransaction *)res;
@@ -2001,7 +2054,7 @@ static ERL_NIF_TERM erlfdb_transaction_on_error(ErlNifEnv *env, int argc,
 
     future = fdb_transaction_on_error(t->transaction, fdb_err);
 
-    return erlfdb_create_future(env, future, ErlFDB_FT_VOID);
+    return erlfdb_create_future(env, &tx_ref, future, ErlFDB_FT_VOID);
 }
 
 static ERL_NIF_TERM erlfdb_transaction_reset(ErlNifEnv *env, int argc,
@@ -2130,6 +2183,7 @@ static ERL_NIF_TERM
 erlfdb_transaction_get_approximate_size(ErlNifEnv *env, int argc,
                                         const ERL_NIF_TERM argv[]) {
     ErlFDBSt *st = (ErlFDBSt *)enif_priv_data(env);
+    ERL_NIF_TERM tx_ref;
     ErlFDBTransaction *t;
     FDBFuture *future;
     void *res;
@@ -2142,7 +2196,9 @@ erlfdb_transaction_get_approximate_size(ErlNifEnv *env, int argc,
         return enif_make_badarg(env);
     }
 
-    if (!enif_get_resource(env, argv[0], ErlFDBTransactionRes, &res)) {
+    tx_ref = argv[0];
+
+    if (!enif_get_resource(env, tx_ref, ErlFDBTransactionRes, &res)) {
         return enif_make_badarg(env);
     }
     t = (ErlFDBTransaction *)res;
@@ -2153,7 +2209,7 @@ erlfdb_transaction_get_approximate_size(ErlNifEnv *env, int argc,
 
     future = fdb_transaction_get_approximate_size(t->transaction);
 
-    return erlfdb_create_future(env, future, ErlFDB_FT_INT64);
+    return erlfdb_create_future(env, &tx_ref, future, ErlFDB_FT_INT64);
 }
 
 static ERL_NIF_TERM
