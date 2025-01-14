@@ -61,7 +61,6 @@ static void *erlfdb_network_thread(void *arg) {
 static void erlfdb_future_cb(FDBFuture *fdb_future, void *data) {
     ErlFDBFuture *future = (ErlFDBFuture *)data;
     ErlNifEnv *caller;
-    ERL_NIF_TERM key;
     ERL_NIF_TERM msg;
 
     // FoundationDB callbacks can fire from the thread
@@ -77,13 +76,7 @@ static void erlfdb_future_cb(FDBFuture *fdb_future, void *data) {
     enif_mutex_lock(future->lock);
 
     if (!future->cancelled) {
-        if (IS_ATOM(future->tx_ref, false)) {
-            key = future->msg_ref;
-        } else {
-            key = T2(future->msg_env, future->tx_ref, future->msg_ref);
-        }
-
-        msg = T2(future->msg_env, key, ATOM_ready);
+        msg = T2(future->msg_env, future->msg_ref, ATOM_ready);
         enif_send(caller, &(future->pid), future->msg_env, msg);
     }
 
@@ -98,7 +91,8 @@ static void erlfdb_future_cb(FDBFuture *fdb_future, void *data) {
     return;
 }
 
-static ERL_NIF_TERM erlfdb_create_future(ErlNifEnv *env, ERL_NIF_TERM *tx_ref, FDBFuture *future,
+static ERL_NIF_TERM erlfdb_create_future(ErlNifEnv *env, ERL_NIF_TERM *tx_ref,
+                                         FDBFuture *future,
                                          ErlFDBFutureType ftype) {
     ErlFDBFuture *f;
     ERL_NIF_TERM ref = enif_make_ref(env);
@@ -112,11 +106,11 @@ static ERL_NIF_TERM erlfdb_create_future(ErlNifEnv *env, ERL_NIF_TERM *tx_ref, F
     f->pid_env = env;
     f->msg_env = enif_alloc_env();
     if (tx_ref != NULL) {
-        f->tx_ref = enif_make_copy(f->msg_env, *tx_ref);
+        f->msg_ref = T2(f->msg_env, enif_make_copy(f->msg_env, *tx_ref),
+                        enif_make_copy(f->msg_env, ref));
     } else {
-        f->tx_ref = ATOM_false;
+        f->msg_ref = enif_make_copy(f->msg_env, ref);
     }
-    f->msg_ref = enif_make_copy(f->msg_env, ref);
     f->lock = enif_mutex_create("fdb:future_lock");
     f->cancelled = false;
 
@@ -1654,7 +1648,8 @@ erlfdb_transaction_get_mapped_range(ErlNifEnv *env, int argc,
         (uint8_t *)mapper.data, mapper.size, limit, target_bytes, mode,
         iteration, snapshot, reverse);
 
-    return erlfdb_create_future(env, &tx_ref, future, ErlFDB_FT_MAPPEDKEYVALUE_ARRAY);
+    return erlfdb_create_future(env, &tx_ref, future,
+                                ErlFDB_FT_MAPPEDKEYVALUE_ARRAY);
 }
 #else
 static ERL_NIF_TERM
