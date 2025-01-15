@@ -448,11 +448,11 @@ Performing non-trivial logic inside a transaction:
 transactional(?IS_DB = Db, UserFun) when is_function(UserFun, 1) ->
     clear_erlfdb_error(),
     Tx = create_transaction(Db),
-    do_transaction(Tx, UserFun);
+    do_transaction(Tx, UserFun, 0);
 transactional(?IS_TENANT = Tenant, UserFun) when is_function(UserFun, 1) ->
     clear_erlfdb_error(),
     Tx = tenant_create_transaction(Tenant),
-    do_transaction(Tx, UserFun);
+    do_transaction(Tx, UserFun, 0);
 transactional(?IS_TX = Tx, UserFun) when is_function(UserFun, 1) ->
     UserFun(Tx);
 transactional(?IS_SS = SS, UserFun) when is_function(UserFun, 1) ->
@@ -1569,6 +1569,18 @@ want to know what the value is.
 3> ok = erlfdb:wait(Watch).
 4> erlfdb:get(Db, <<"hello">>).
 ```
+
+In this example, we rely on the future's `ready` message to be delivered to our calling process. This form of the
+ready message (`t:watch_future_ready_message/0`) is valid only for futures created by `watch/2`.
+
+```erlang
+1> Db = erlfdb:open(),
+2> Watch = erlfdb:watch(Db, <<"hello">>).
+3> receive
+..    {_Ref, ready} ->
+..        erlfdb:get(Db, <<"hello">>)
+.. end
+```
 """.
 -endif.
 -spec watch(database() | transaction() | snapshot(), key()) -> future().
@@ -1897,8 +1909,8 @@ get_error_string(ErrorCode) when is_integer(ErrorCode) ->
 clear_erlfdb_error() ->
     put(?ERLFDB_ERROR, undefined).
 
--spec do_transaction(transaction(), function()) -> any().
-do_transaction(?IS_TX = Tx, UserFun) ->
+-spec do_transaction(transaction(), function(), integer()) -> any().
+do_transaction(?IS_TX = Tx, UserFun, Depth) ->
     try
         Ret = UserFun(Tx),
         case is_read_only(Tx) andalso not has_watches(Tx) of
@@ -1910,16 +1922,20 @@ do_transaction(?IS_TX = Tx, UserFun) ->
         error:{erlfdb_error, Code} ->
             put(?ERLFDB_ERROR, Code),
             wait(on_error(Tx, Code), [{timeout, infinity}]),
-            do_transaction(Tx, UserFun)
-    after
-        % Presence of ?ERLFDB_ERROR signals that previously attempted futures
-        % may still have ready messages in the message queue. We'll flush them out.
-        case erlang:get(?ERLFDB_ERROR) of
-            undefined ->
-                ok;
-            _ ->
-                flush_transaction_ready_messages(Tx)
-        end
+            if
+                Depth == 0 ->
+                    Result = do_transaction(Tx, UserFun, Depth + 1),
+
+                    % Entering a Depth >=1 signals that previously attempted
+                    % futures may still have ready messages in the message
+                    % queue. We'll flush them out here, allowing others to
+                    % be tail calls.
+                    flush_transaction_ready_messages(Tx),
+
+                    Result;
+                true ->
+                    do_transaction(Tx, UserFun, Depth + 1)
+            end
     end.
 
 -spec folding_get_range_and_wait(transaction(), key(), key(), function(), any(), [fold_option()]) ->
