@@ -1,12 +1,25 @@
 # Changelog for v0.x
 
-## v0.2.2 (TBD)
+## v0.2.2 (2024-01-16)
 
 ### Bug fixes
 
   * (#31) Previously, erlfdb could leak `{reference(), ready}` messages to the caller if
     the transaction UserFun was executed more than once. We will now flush such messages before
     `transactional/2` returns control to the caller. Watches are unaffected.
+  * (#32) Fixed documentation for versionstamps in `m:erlfdb_tuple`.
+
+### Enhancements
+
+  * `m:erlfdb_sandbox`: Creates and starts a database on your local filesystem that is to be
+    used as a sandbox. That is, it can be useful for development tasks like tutorials and unit tests.
+    It should not be used in a production setting.
+
+### New contributors
+
+Thank you to the following new contributors! :)
+
+* drowzy
 
 ## v0.2.1 (2024-11-20)
 

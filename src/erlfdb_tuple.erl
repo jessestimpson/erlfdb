@@ -116,14 +116,14 @@ Encodes the tuple into a binary.
 
 - `null`: Encodes as NULL char (`16#0`)  instead of as an atom.
 - `t:boolean/0`: Encodes as a boolean instead of as an atom.
-- `{utf8, float()}`: Encodes `Bin` as UTF-8 string.
+- `{utf8, Bin :: binary()}`: Encodes `Bin` as UTF-8 string.
 - `{float, float()}`: Advanced floating point encoding. See `m:erlfdb_float`.
 - `{float, _, float()}`: Advanced floating point encoding. See `m:erlfdb_float`.
 - `{double, _, float()}`: Advanced floating point encoding. See `m:erlfdb_float`.
 - `{uuid, binary()}`: Encodes a binary of size == 16 as a UUID type.
 - `{id64, integer()}`: Encodes a fixed-length 64-bit integer.
-- `{versionstamp, Id, Batch}`: Versionstamp encoding. For unset versionstamps use `pack_vs/1`.
-- `{versionstamp, Id, Batch, Tx}`: Versionstamp encoding. For unset versionstamps use `pack_vs/1`.
+- `{versionstamp, Id :: integer(), Batch :: integer()}`: Versionstamp encoding. For unset versionstamps use `pack_vs/1`.
+- `{versionstamp, Id :: integer(), Batch :: integer(), Tx}`: Versionstamp encoding. For unset versionstamps use `pack_vs/1`.
 
 ## Unsupported Erlang types
 
