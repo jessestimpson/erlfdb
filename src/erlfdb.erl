@@ -208,6 +208,7 @@ iex> :erlfdb.transactional(db, fn tx ->
     fold_future/0,
     fold_option/0,
     future/0,
+    future_ready_message/0,
     key/0,
     key_selector/0,
     kv/0,
@@ -218,10 +219,12 @@ iex> :erlfdb.transactional(db, fn tx ->
     tenant/0,
     tenant_name/0,
     transaction/0,
+    transaction_future_ready_message/0,
     transaction_option/0,
     value/0,
     version/0,
-    wait_option/0
+    wait_option/0,
+    watch_future_ready_message/0
 ]).
 
 -define(IS_FUTURE, {erlfdb_future, _, _}).
@@ -272,6 +275,7 @@ iex> :erlfdb.transactional(db, fn tx ->
 -type split_option() ::
     {chunk_size, non_neg_integer()}.
 -type future() :: erlfdb_nif:future().
+-type future_ready_message() :: transaction_future_ready_message() | watch_future_ready_message().
 -type key() :: erlfdb_nif:key().
 -type kv() :: {key(), value()}.
 -type key_selector() :: erlfdb_nif:key_selector().
@@ -282,10 +286,12 @@ iex> :erlfdb.transactional(db, fn tx ->
 -type tenant() :: erlfdb_nif:tenant().
 -type tenant_name() :: binary().
 -type transaction() :: erlfdb_nif:transaction().
+-type transaction_future_ready_message() :: {{reference(), reference()}, ready}.
 -type transaction_option() :: erlfdb_nif:transaction_option().
 -type value() :: erlfdb_nif:value().
 -type version() :: erlfdb_nif:version().
 -type wait_option() :: {timeout, non_neg_integer() | infinity} | {with_index, boolean()}.
+-type watch_future_ready_message() :: {reference(), ready}.
 
 -if(?DOCATTRS).
 -doc """
@@ -442,11 +448,11 @@ Performing non-trivial logic inside a transaction:
 transactional(?IS_DB = Db, UserFun) when is_function(UserFun, 1) ->
     clear_erlfdb_error(),
     Tx = create_transaction(Db),
-    do_transaction(Tx, UserFun);
+    do_transaction(Tx, UserFun, 0);
 transactional(?IS_TENANT = Tenant, UserFun) when is_function(UserFun, 1) ->
     clear_erlfdb_error(),
     Tx = tenant_create_transaction(Tenant),
-    do_transaction(Tx, UserFun);
+    do_transaction(Tx, UserFun, 0);
 transactional(?IS_TX = Tx, UserFun) when is_function(UserFun, 1) ->
     UserFun(Tx);
 transactional(?IS_SS = SS, UserFun) when is_function(UserFun, 1) ->
@@ -635,7 +641,8 @@ Blocks the calling process until the future is ready.
 block_until_ready(?IS_FUTURE = Future) ->
     {erlfdb_future, MsgRef, _FRef} = Future,
     receive
-        {MsgRef, ready} -> ok
+        {MsgRef, ready} -> ok;
+        {{_TxRef, MsgRef}, ready} -> ok
     end.
 
 -if(?DOCATTRS).
@@ -679,7 +686,8 @@ wait(?IS_FUTURE = Future, Options) ->
             Timeout = erlfdb_util:get(Options, timeout, infinity),
             {erlfdb_future, MsgRef, _Res} = Future,
             receive
-                {MsgRef, ready} -> get(Future)
+                {MsgRef, ready} -> get(Future);
+                {{_TxRef, MsgRef}, ready} -> get(Future)
             after Timeout ->
                 erlang:error({timeout, Future})
             end
@@ -726,8 +734,8 @@ wait_for_any(Futures, Options) ->
 wait_for_any(Futures, Options, ResendQ) ->
     Timeout = erlfdb_util:get(Options, timeout, infinity),
     receive
-        {MsgRef, ready} = Msg ->
-            case lists:keyfind(MsgRef, 2, Futures) of
+        {FutureKey, ready} = Msg when is_reference(FutureKey) orelse is_tuple(FutureKey) ->
+            case lists:keyfind(FutureKey, 2, Futures) of
                 ?IS_FUTURE = Future ->
                     lists:foreach(
                         fun(M) ->
@@ -1561,6 +1569,18 @@ want to know what the value is.
 3> ok = erlfdb:wait(Watch).
 4> erlfdb:get(Db, <<"hello">>).
 ```
+
+In this example, we rely on the future's `ready` message to be delivered to our calling process. This form of the
+ready message (`t:watch_future_ready_message/0`) is valid only for futures created by `watch/2`.
+
+```erlang
+1> Db = erlfdb:open(),
+2> Watch = erlfdb:watch(Db, <<"hello">>).
+3> receive
+..    {_Ref, ready} ->
+..        erlfdb:get(Db, <<"hello">>)
+.. end
+```
 """.
 -endif.
 -spec watch(database() | transaction() | snapshot(), key()) -> future().
@@ -1889,8 +1909,8 @@ get_error_string(ErrorCode) when is_integer(ErrorCode) ->
 clear_erlfdb_error() ->
     put(?ERLFDB_ERROR, undefined).
 
--spec do_transaction(transaction(), function()) -> any().
-do_transaction(?IS_TX = Tx, UserFun) ->
+-spec do_transaction(transaction(), function(), integer()) -> any().
+do_transaction(?IS_TX = Tx, UserFun, Depth) ->
     try
         Ret = UserFun(Tx),
         case is_read_only(Tx) andalso not has_watches(Tx) of
@@ -1902,7 +1922,20 @@ do_transaction(?IS_TX = Tx, UserFun) ->
         error:{erlfdb_error, Code} ->
             put(?ERLFDB_ERROR, Code),
             wait(on_error(Tx, Code), [{timeout, infinity}]),
-            do_transaction(Tx, UserFun)
+            if
+                Depth == 0 ->
+                    Result = do_transaction(Tx, UserFun, Depth + 1),
+
+                    % Entering a Depth >=1 signals that previously attempted
+                    % futures may still have ready messages in the message
+                    % queue. We'll flush them out here, allowing others to
+                    % be tail calls.
+                    flush_transaction_ready_messages(Tx),
+
+                    Result;
+                true ->
+                    do_transaction(Tx, UserFun, Depth + 1)
+            end
     end.
 
 -spec folding_get_range_and_wait(transaction(), key(), key(), function(), any(), [fold_option()]) ->
@@ -2129,6 +2162,15 @@ flush_future_message(?IS_FUTURE = Future) ->
     erlfdb_nif:future_silence(Future),
     {erlfdb_future, MsgRef, _Res} = Future,
     receive
-        {MsgRef, ready} -> ok
+        {MsgRef, ready} -> ok;
+        {{_TxRef, MsgRef}, ready} -> ok
     after 0 -> ok
+    end.
+
+flush_transaction_ready_messages({erlfdb_transaction, TxRef} = Tx) ->
+    receive
+        {{TxRef, _}, ready} ->
+            flush_transaction_ready_messages(Tx)
+    after 0 ->
+        ok
     end.
