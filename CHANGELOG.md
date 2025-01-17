@@ -1,6 +1,14 @@
 # Changelog for v0.x
 
-## v0.2.1 (TBD)
+## v0.2.2 (TBD)
+
+### Bug fixes
+
+  * (#31) Previously, erlfdb could leak `{reference(), ready}` messages to the caller if
+    the transaction UserFun was executed more than once. We will now flush such messages before
+    `transactional/2` returns control to the caller. Watches are unaffected.
+
+## v0.2.1 (2024-11-20)
 
 ### Testing
 
