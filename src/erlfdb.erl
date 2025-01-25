@@ -1744,7 +1744,7 @@ get_committed_version(?IS_SS = SS) ->
 
 -if(?DOCATTRS).
 -doc """
-Gets the versionstamp value that was used by any verionstamp operations in this transaction.
+Gets the versionstamp value that was used by any versionstamp operations in this transaction.
 
 This is not needed in simple cases.
 
@@ -1771,7 +1771,34 @@ get_approximate_size(?IS_SS = SS) ->
     get_approximate_size(?GET_TX(SS)).
 
 -if(?DOCATTRS).
--doc hidden.
+-doc """
+Gets a local auto-incrementing integer for this transaction.
+
+Each time this function is executed, a local counter on the transaction is incremented,
+and the value returned.
+
+This integer is useful in combination with versionstamps to ensure uniqueness
+of versionstamped keys and values for your transaction.
+
+## Examples
+
+```erlang
+1> erlfdb:transactional(Db, fun(Tx) ->
+..
+..   Key1 = erlfdb_tuple:pack_vs({<<"sample">>,
+..          {versionstamp, 16#ffffffffffffffff, 16#ffff, erlfdb:get_next_tx_id(Tx)}}),
+..   erlfdb:set_versionstamped_key(Key1, <<"hello">>),
+..
+..   Key2 = erlfdb_tuple:pack_vs({<<"sample">>,
+..          {versionstamp, 16#ffffffffffffffff, 16#ffff, erlfdb:get_next_tx_id(Tx)}}),
+..   erlfdb:set_versionstamped_key(Key2, <<"world">>)
+..
+.. end)
+```
+
+Without `get_next_tx_id`, the versionstamped keys generated at commit time would collide, because
+exactly one versionstamp is created at commit time.
+""".
 -endif.
 -spec get_next_tx_id(transaction() | snapshot()) -> non_neg_integer().
 get_next_tx_id(?IS_TX = Tx) ->

@@ -295,6 +295,39 @@ flush_foregone_futures_test() ->
 
     ?assertMatch([], Leaks).
 
+versionstamp_test() ->
+    Db = erlfdb_util:get_test_db(),
+    Tenant = erlfdb_util:create_and_open_test_tenant(Db, [empty]),
+    VsFuture = erlfdb:transactional(Tenant, fun(Tx) ->
+        Key = erlfdb_tuple:pack_vs(
+            {<<"vs">>, {versionstamp, 16#ffffffffffffffff, 16#ffff, 16#ffff}}
+        ),
+        erlfdb:set_versionstamped_key(Tx, Key, <<"test">>),
+        Res = erlfdb:get_versionstamp(Tx),
+
+        % It's important for us to exercise the "foregone future flushing" logic
+        % because the future from get_versionstamp only resolves after the commit,
+        % similar to the watch future.
+        case erlfdb:get_last_error() of
+            undefined ->
+                % Fake not_committed
+                erlang:error({erlfdb_error, 1020});
+            _ ->
+                ok
+        end,
+        Res
+    end),
+    ?assertMatch(
+        [{_, <<"test">>}],
+        erlfdb:transactional(Tenant, fun(Tx) ->
+            {S, E} = erlfdb_tuple:range({<<"vs">>}),
+            erlfdb:get_range(Tx, S, E, [{wait, true}])
+        end)
+    ),
+
+    ?assert(is_binary(erlfdb:wait(VsFuture, [{timeout, 100}]))),
+    ok.
+
 get_set_get(DbOrTenant) ->
     Key = gen_key(8),
     Val = crypto:strong_rand_bytes(8),
