@@ -1958,7 +1958,9 @@ erlfdb_transaction_get_versionstamp(ErlNifEnv *env, int argc,
 
     future = fdb_transaction_get_versionstamp(t->transaction);
 
-    return erlfdb_create_future(env, &tx_ref, future, ErlFDB_FT_KEY);
+    // get_versionstamp resolves after the commit, so we do not wish
+    // to tie the future to the transaction ref
+    return erlfdb_create_future(env, NULL, future, ErlFDB_FT_KEY);
 }
 
 static ERL_NIF_TERM erlfdb_transaction_watch(ErlNifEnv *env, int argc,

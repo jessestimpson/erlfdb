@@ -1,5 +1,14 @@
 # Changelog for v0.x
 
+## v0.2.3 (TBD)
+
+### Bug fixes
+
+  * (#36) Starting in v0.2.2, the ready message from a get_versionstamp future included
+    the ref from the transaction, putting it at risk of being flushed in the after the
+    transaction completes. Now, the ready message behaves much like the watch, where it
+    is not tied to the transaction ref.
+
 ## v0.2.2 (2024-01-16)
 
 ### Bug fixes
