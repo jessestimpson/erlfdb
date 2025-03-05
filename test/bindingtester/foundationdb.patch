@@ -5,14 +5,14 @@ index bfe569e27..5db968e89 100644
 @@ -22,7 +22,7 @@ import math
  import sys
  import os
-
+ 
 -sys.path[:0] = [os.path.join(os.path.dirname(__file__), '..', '..', 'bindings', 'python')]
 +sys.path[:0] = ['USER_SITE_PATH']
-
+ 
  import util
  from fdb import LATEST_API_VERSION
 diff --git a/bindings/bindingtester/known_testers.py b/bindings/bindingtester/known_testers.py
-index 30a0b72fa..227386610 100644
+index 30a0b72fa..22ad4e249 100644
 --- a/bindings/bindingtester/known_testers.py
 +++ b/bindings/bindingtester/known_testers.py
 @@ -67,4 +67,5 @@ testers = {
@@ -28,9 +28,9 @@ index a856727b4..49f6cb5a4 100644
 @@ -27,7 +27,7 @@ import struct
  import sys
  import threading
-
+ 
 -sys.path[:0] = [os.path.join(os.path.dirname(__file__), "..")]
 +sys.path[:0] = ['USER_SITE_PATH']
  import fdb
-
+ 
  fdb.api_version(int(sys.argv[2]))
