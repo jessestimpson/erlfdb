@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   linux:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         include:
@@ -18,13 +18,13 @@ jobs:
             fdb: "7.2.2"
             eunit: true
           - otp: "25"
-            fdb: "7.3.42"
+            fdb: "7.3.62"
             eunit: true
           - otp: "27.0.1"
             fdb: "7.2.2"
             eunit: true
           - otp: "27.0.1"
-            fdb: "7.3.42"
+            fdb: "7.3.62"
             eunit: true
             bindingtester: true
             dialyzer: true
@@ -37,6 +37,7 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           otp-version: ${{matrix.otp}}
+          rebar3-version: "3.24.0"
       - name: Run rebar3 fmt check for Erlang files
         run: ERLFDB_ASSERT_FDBCLI=0 rebar3 fmt --check
         if: ${{ matrix.fmt }}
@@ -80,7 +81,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - fdb: "7.3.42"
+          - fdb: "7.3.62"
             eunit: true
     name: "macOS / FDB ${{ matrix.fdb }} (${{ matrix.eunit && 'eunit' || '' }})"
     env:
