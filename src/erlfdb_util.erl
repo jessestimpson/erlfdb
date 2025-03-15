@@ -59,13 +59,21 @@ get_test_db(Options) ->
 init_test_cluster(Options) ->
     % Hack to ensure erlfdb app environment is loaded during unit tests
     ok = application:ensure_started(erlfdb),
+
+    {ok, CWD} = file:get_cwd(),
+    DefaultDir = filename:join(CWD, ".erlfdb"),
+    Dir = ?MODULE:get(Options, dir, DefaultDir),
+
     case application:get_env(erlfdb, test_cluster_file) of
         {ok, system_default} ->
             {ok, <<>>};
-        {ok, ClusterFile} ->
-            {ok, ClusterFile};
-        undefined ->
-            init_test_cluster_int(Options)
+        _ ->
+            case persistent_term:get({erlfdb, test_cluster_file, Dir}, undefined) of
+                undefined ->
+                    init_test_cluster_int(Dir, Options);
+                ClusterFile ->
+                    {ok, ClusterFile}
+            end
     end.
 
 create_and_open_test_tenant(Db, Options) ->
@@ -170,15 +178,12 @@ debug_cluster(Tx, Start, End) ->
         erlfdb:wait(erlfdb:get_range(Tx, Start, End))
     ).
 
-init_test_cluster_int(Options) ->
-    {ok, CWD} = file:get_cwd(),
+init_test_cluster_int(Dir, Options) ->
     DefaultIpAddr = {127, 0, 0, 1},
     DefaultPort = get_available_port(),
-    DefaultDir = filename:join(CWD, ".erlfdb"),
 
     IpAddr = ?MODULE:get(Options, ip_addr, DefaultIpAddr),
     Port = ?MODULE:get(Options, port, DefaultPort),
-    Dir = ?MODULE:get(Options, dir, DefaultDir),
     ClusterName = ?MODULE:get(Options, cluster_name, <<"erlfdbtest">>),
     ClusterId = ?MODULE:get(Options, cluster_id, <<"erlfdbtest">>),
 
@@ -241,8 +246,8 @@ init_test_cluster_int(Options) ->
             erlang:error({fdbserver_error, Msg})
     end,
 
-    ok = application:set_env(erlfdb, test_cluster_file, ClusterFile),
-    ok = application:set_env(erlfdb, test_cluster_pid, FDBPid),
+    persistent_term:put({erlfdb, test_cluster_file, Dir}, ClusterFile),
+
     {ok, ClusterFile}.
 
 get_available_port() ->

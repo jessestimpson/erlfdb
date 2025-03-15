@@ -15,7 +15,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 get_approximate_tx_size_test() ->
-    Db1 = erlfdb_util:get_test_db(),
+    Db1 = erlfdb_sandbox:open(),
     erlfdb:transactional(Db1, fun(Tx) ->
         ok = erlfdb:set(Tx, gen(10), gen(5000)),
         TxSize1 = erlfdb:wait(erlfdb:get_approximate_size(Tx)),
@@ -26,7 +26,7 @@ get_approximate_tx_size_test() ->
     end).
 
 size_limit_test() ->
-    Db1 = erlfdb_util:get_test_db(),
+    Db1 = erlfdb_sandbox:open(),
     ?assertError(
         {erlfdb_error, 2101},
         erlfdb:transactional(Db1, fun(Tx) ->
@@ -36,7 +36,7 @@ size_limit_test() ->
     ).
 
 writes_allowed_test() ->
-    Db1 = erlfdb_util:get_test_db(),
+    Db1 = erlfdb_sandbox:open(),
     ?assertError(
         writes_not_allowed,
         erlfdb:transactional(Db1, fun(Tx) ->
@@ -54,7 +54,7 @@ writes_allowed_test() ->
     ).
 
 once_writes_happend_cannot_disallow_them_test() ->
-    Db1 = erlfdb_util:get_test_db(),
+    Db1 = erlfdb_sandbox:open(),
     ?assertError(
         badarg,
         erlfdb:transactional(Db1, fun(Tx) ->
@@ -64,7 +64,7 @@ once_writes_happend_cannot_disallow_them_test() ->
     ).
 
 has_watches_test() ->
-    Db1 = erlfdb_util:get_test_db(),
+    Db1 = erlfdb_sandbox:open(),
     {Before, After, AfterReset} = (erlfdb:transactional(Db1, fun(Tx) ->
         Before = erlfdb:has_watches(Tx),
         erlfdb:watch(Tx, gen(10)),
@@ -78,7 +78,7 @@ has_watches_test() ->
     ?assert(not AfterReset).
 
 cannot_set_watches_if_writes_disallowed_test() ->
-    Db1 = erlfdb_util:get_test_db(),
+    Db1 = erlfdb_sandbox:open(),
     ?assertError(
         writes_not_allowed,
         erlfdb:transactional(Db1, fun(Tx) ->
@@ -88,7 +88,7 @@ cannot_set_watches_if_writes_disallowed_test() ->
     ).
 
 size_limit_on_db_handle_test() ->
-    Db1 = erlfdb_util:get_test_db(),
+    Db1 = erlfdb_sandbox:open(),
     erlfdb:set_option(Db1, size_limit, 10000),
     ?assertError(
         {erlfdb_error, 2101},

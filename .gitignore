@@ -1,5 +1,4 @@
 # Unit testing
-.erlfdb/
 .eunit/
 
 compile_commands.json
@@ -19,3 +18,5 @@ doc/
 
 # Must be generated locally
 .clangd
+
+.erlfdb_sandbox

@@ -15,28 +15,28 @@
 -include_lib("eunit/include/eunit.hrl").
 
 basic_init_test() ->
-    {ok, ClusterFile} = erlfdb_util:init_test_cluster([]),
+    {ok, ClusterFile} = erlfdb_util:init_test_cluster(erlfdb_sandbox:default_options()),
     ?assert(is_binary(ClusterFile)).
 
 basic_open_test() ->
-    {ok, ClusterFile} = erlfdb_util:init_test_cluster([]),
+    {ok, ClusterFile} = erlfdb_util:init_test_cluster(erlfdb_sandbox:default_options()),
     Db = erlfdb:open(ClusterFile),
     erlfdb:transactional(Db, fun(_Tx) ->
         ?assert(true)
     end).
 
 get_db_test() ->
-    Db = erlfdb_util:get_test_db(),
+    Db = erlfdb_sandbox:open(),
     erlfdb:transactional(Db, fun(_Tx) ->
         ?assert(true)
     end).
 
 get_set_get_test() ->
-    Db = erlfdb_util:get_test_db(),
+    Db = erlfdb_sandbox:open(),
     get_set_get(Db).
 
 get_empty_test() ->
-    Db = erlfdb_util:get_test_db(),
+    Db = erlfdb_sandbox:open(),
     Tenant1 = erlfdb_util:create_and_open_test_tenant(Db, [empty]),
     Key = gen_key(8),
     Val = crypto:strong_rand_bytes(8),
@@ -60,13 +60,13 @@ get_empty_test() ->
     end).
 
 get_set_get_tenant_test() ->
-    Db = erlfdb_util:get_test_db(),
+    Db = erlfdb_sandbox:open(),
     Tenant = erlfdb_util:create_and_open_test_tenant(Db, [empty]),
     get_set_get(Tenant),
     erlfdb_util:clear_and_delete_test_tenant(Db).
 
 get_range_test() ->
-    Db = erlfdb_util:get_test_db(),
+    Db = erlfdb_sandbox:open(),
     Tenant = erlfdb_util:create_and_open_test_tenant(Db, [empty]),
 
     KVs = create_range(Tenant, <<"get_range_test">>, 3),
@@ -101,7 +101,7 @@ get_range_test() ->
     end.
 
 interleaving_test() ->
-    Db = erlfdb_util:get_test_db(),
+    Db = erlfdb_sandbox:open(),
     Tenant = erlfdb_util:create_and_open_test_tenant(Db, [empty]),
 
     % Needs to be pretty large so that split points is non-trivial
@@ -217,7 +217,7 @@ get_mapped_range_minimal_test() ->
 
     if
         Vsn >= 730 ->
-            Db = erlfdb_util:get_test_db(),
+            Db = erlfdb_sandbox:open(),
             Tenant = erlfdb_util:create_and_open_test_tenant(Db, [empty]),
             erlfdb:transactional(Tenant, fun(Tx) ->
                 erlfdb:set(Tx, <<"a">>, erlfdb_tuple:pack({<<"b">>})),
@@ -243,7 +243,7 @@ get_mapped_range_continuation_test() ->
     if
         Vsn >= 730 ->
             N = 100,
-            Db = erlfdb_util:get_test_db(),
+            Db = erlfdb_sandbox:open(),
             Tenant = erlfdb_util:create_and_open_test_tenant(Db, [empty]),
             erlfdb:transactional(Tenant, fun(Tx) ->
                 [
@@ -268,7 +268,7 @@ get_mapped_range_continuation_test() ->
     end.
 
 flush_foregone_futures_test() ->
-    Db = erlfdb_util:get_test_db(),
+    Db = erlfdb_sandbox:open(),
     Tenant = erlfdb_util:create_and_open_test_tenant(Db, [empty]),
     erlfdb:transactional(Tenant, fun(Tx) -> erlfdb:set(Tx, <<"hello">>, <<"world">>) end),
     erlfdb:transactional(Tenant, fun(Tx) ->
@@ -296,7 +296,7 @@ flush_foregone_futures_test() ->
     ?assertMatch([], Leaks).
 
 versionstamp_test() ->
-    Db = erlfdb_util:get_test_db(),
+    Db = erlfdb_sandbox:open(),
     Tenant = erlfdb_util:create_and_open_test_tenant(Db, [empty]),
     VsFuture = erlfdb:transactional(Tenant, fun(Tx) ->
         Key = erlfdb_tuple:pack_vs(

@@ -15,7 +15,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 get_tx_id_test() ->
-    Db = erlfdb_util:get_test_db(),
+    Db = erlfdb_sandbox:open(),
     erlfdb:transactional(Db, fun(Tx) ->
         lists:foreach(
             fun(I) ->
