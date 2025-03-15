@@ -15,7 +15,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 snapshot_from_tx_test() ->
-    Db = erlfdb_util:get_test_db(),
+    Db = erlfdb_sandbox:open(),
     Key = gen(10),
     Val = gen(10),
     erlfdb:set(Db, Key, Val),
@@ -26,7 +26,7 @@ snapshot_from_tx_test() ->
     end).
 
 snapshot_from_a_snapshot_test() ->
-    Db = erlfdb_util:get_test_db(),
+    Db = erlfdb_sandbox:open(),
     Key = gen(10),
     Val = gen(10),
     erlfdb:set(Db, Key, Val),

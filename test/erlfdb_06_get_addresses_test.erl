@@ -15,7 +15,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 get_addresses_for_key_test() ->
-    Db = erlfdb_util:get_test_db(),
+    Db = erlfdb_sandbox:open(),
     % Does not matter whether foo exists in Db
     Result = erlfdb:get_addresses_for_key(Db, <<"foo">>),
     ?assertMatch([X | _] when is_binary(X), Result).
