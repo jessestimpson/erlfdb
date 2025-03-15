@@ -64,13 +64,16 @@ init_test_cluster(Options) ->
     DefaultDir = filename:join(CWD, ".erlfdb"),
     Dir = ?MODULE:get(Options, dir, DefaultDir),
 
-    case application:get_env(erlfdb, {test_cluster_file, Dir}) of
+    case application:get_env(erlfdb, test_cluster_file) of
         {ok, system_default} ->
             {ok, <<>>};
-        {ok, ClusterFile} ->
-            {ok, ClusterFile};
-        undefined ->
-            init_test_cluster_int(Dir, Options)
+        _ ->
+            case persistent_term:get({erlfdb, test_cluster_file, Dir}, undefined) of
+                undefined ->
+                    init_test_cluster_int(Dir, Options);
+                ClusterFile ->
+                    {ok, ClusterFile}
+            end
     end.
 
 create_and_open_test_tenant(Db, Options) ->
@@ -243,7 +246,8 @@ init_test_cluster_int(Dir, Options) ->
             erlang:error({fdbserver_error, Msg})
     end,
 
-    ok = application:set_env(erlfdb, {test_cluster_file, Dir}, ClusterFile),
+    persistent_term:put({erlfdb, test_cluster_file, Dir}, ClusterFile),
+
     {ok, ClusterFile}.
 
 get_available_port() ->
