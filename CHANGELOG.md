@@ -1,6 +1,6 @@
-# Changelog for v0.x
+# Changelog
 
-## v0.2.3 (TBD)
+## v0.2.3 (2025-03-15)
 
 ### Bug fixes
 
@@ -8,6 +8,13 @@
     the ref from the transaction, putting it at risk of being flushed in the after the
     transaction completes. Now, the ready message behaves much like the watch, where it
     is not tied to the transaction ref.
+  * Sandboxes can now be specified with a subdirectory, allowing concurrent
+    creation (`m:erlfdb_sandbox`)
+
+### Enhancements
+
+ * [Livebook | KvQueue](kv_queue.html): An interactive notebook that
+ demonstrates the creation of a durable queue in FoundationDB.
 
 ## v0.2.2 (2024-01-16)
 
