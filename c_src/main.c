@@ -396,26 +396,7 @@ erlfdb_future_get_mappedkeyvalue_array(ErlNifEnv *env, ErlFDBFuture *f) {
     }
 }
 
-static int erlfdb_load(ErlNifEnv *env, void **priv,
-                       ERL_NIF_TERM num_schedulers) {
-    ErlFDBSt *st = (ErlFDBSt *)enif_alloc(sizeof(ErlFDBSt));
-
-    erlfdb_init_atoms(env);
-
-    if (!erlfdb_init_resources(env)) {
-        return 1;
-    }
-
-    st->lock = enif_mutex_create("fdb:st_lock");
-    st->cond = enif_cond_create("fdb:st_cond");
-
-    st->lib_state = ErlFDB_LOADED;
-    *priv = st;
-
-    return 0;
-}
-
-static void erlfdb_unload(ErlNifEnv *env, void *priv) {
+static void erlfdb_join(void *priv) {
     ErlFDBSt *st = (ErlFDBSt *)priv;
     ErlFDBLibState lib_state = ErlFDB_STATE_ERROR;
     fdb_error_t err;
@@ -445,6 +426,35 @@ static void erlfdb_unload(ErlNifEnv *env, void *priv) {
 
     return;
 }
+
+static int erlfdb_load(ErlNifEnv *env, void **priv,
+                       ERL_NIF_TERM num_schedulers) {
+
+    ErlFDBSt *st = (ErlFDBSt *)enif_alloc(sizeof(ErlFDBSt));
+
+    erlfdb_init_atoms(env);
+
+    if (!erlfdb_init_resources(env)) {
+        return 1;
+    }
+
+#if (ERL_NIF_MAJOR_VERSION > 2) ||                                             \
+    (ERL_NIF_MAJOR_VERSION == 2 && ERL_NIF_MINOR_VERSION >= 17)
+    if (0 != enif_set_option(env, ERL_NIF_OPT_ON_HALT, erlfdb_join)) {
+        return 1;
+    }
+#endif
+
+    st->lock = enif_mutex_create("fdb:st_lock");
+    st->cond = enif_cond_create("fdb:st_cond");
+
+    st->lib_state = ErlFDB_LOADED;
+    *priv = st;
+
+    return 0;
+}
+
+static void erlfdb_unload(ErlNifEnv *env, void *priv) { erlfdb_join(priv); }
 
 static ERL_NIF_TERM erlfdb_can_initialize(ErlNifEnv *env, int argc,
                                           const ERL_NIF_TERM argv[]) {

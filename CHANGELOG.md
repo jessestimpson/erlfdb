@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.2.4 (2025-03-23)
+
+### Bug fixes
+
+  * (#43) For OTP >= 26, erlfdb NIF will no longer segfault on VM halt.
+
 ## v0.2.3 (2025-03-15)
 
 ### Bug fixes
