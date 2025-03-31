@@ -76,8 +76,15 @@ iex> :erlfdb.transactional(db, fn tx ->
 -export([
     open/0,
     open/1,
+    open/2,
+    open_all/0,
+    open_all/1,
+    open_all/2,
 
     open_tenant/2,
+
+    create_database/0,
+    create_database/1,
 
     create_transaction/1,
     tenant_create_transaction/1,
@@ -214,6 +221,7 @@ iex> :erlfdb.transactional(db, fn tx ->
     kv/0,
     mapped_kv/0,
     mapper/0,
+    open_option/0,
     result/0,
     snapshot/0,
     tenant/0,
@@ -279,6 +287,7 @@ iex> :erlfdb.transactional(db, fn tx ->
 -type key() :: erlfdb_nif:key().
 -type kv() :: {key(), value()}.
 -type key_selector() :: erlfdb_nif:key_selector().
+-type open_option() :: {dist, scheduler_id | cluster_file}.
 -type result() :: erlfdb_nif:future_result().
 -type mapped_kv() :: {kv(), {key(), key()}, list(kv())}.
 -type mapper() :: tuple().
@@ -295,9 +304,11 @@ iex> :erlfdb.transactional(db, fn tx ->
 
 -if(?DOCATTRS).
 -doc """
-Opens a handle to the FoundationDB server using the [default cluster file](https://apple.github.io/foundationdb/administration.html#default-cluster-file).
+Opens a database using the [default cluster file](https://apple.github.io/foundationdb/administration.html#default-cluster-file).
 
 *C API function*: [`fdb_create_database`](https://apple.github.io/foundationdb/api-c.html#c.fdb_create_database)
+
+See `open/2` for more.
 """.
 -endif.
 -spec open() -> database().
@@ -306,14 +317,101 @@ open() ->
 
 -if(?DOCATTRS).
 -doc """
-Opens a handle to the FoundationDB server using the provided cluster file string.
+Opens a database using the provided cluster file string.
 
 *C API function*: [`fdb_create_database`](https://apple.github.io/foundationdb/api-c.html#c.fdb_create_database)
+
+See `open/2` for more.
 """.
 -endif.
 -spec open(cluster_filename()) -> database().
 open(ClusterFile) ->
-    erlfdb_nif:create_database(ClusterFile).
+    open(ClusterFile, []).
+
+-if(?DOCATTRS).
+-doc """
+Opens a database using the provided cluster file string.
+
+*C API function*: [`fdb_create_database`](https://apple.github.io/foundationdb/api-c.html#c.fdb_create_database)
+
+`open/2` is optimized to only create the minimum number of database objects necessary based on the configuration
+options provided. For optimal performance, your application should call `open/2` very frequently. This will ensure
+even distribution of work among client threads when using the [`client_threads_per_version`](thread-design.html) network option.
+
+## Options
+
+  - `dist`: Provides a work distribution stategy, which defaults to `scheduler_id`. See below for details.
+
+### Work distribution with the `dist` option
+
+It's usually desirable for the application to create a limited number of database objects that can be re-used
+across many transactions. The `dist` option provides some common strategies for doing so. If you want to implement
+your own, use `create_database/1` directly instead.
+
+  - `scheduler_id`: (default) A new database object will be created for each scheduler id in the running system for each unique
+    cluster file.  This strategy does not claim that a particular item of work will remain on a scheduler -- only
+    that the scheduler_id itself is helpful in distributing work in a roughly even fashion.
+  - `cluster_file`: A new database object will be created for each unique cluster file provided.
+
+""".
+-endif.
+-spec open(cluster_filename(), list(open_option())) -> database().
+open(ClusterFile, Options) ->
+    Key =
+        case proplists:get_value(dist, Options, scheduler_id) of
+            scheduler_id ->
+                Sid = erlang:system_info(scheduler_id),
+                open_dist_key(scheduler_id, {ClusterFile, Sid});
+            cluster_file ->
+                open_dist_key(cluster_file, ClusterFile)
+        end,
+    open_with_key(Key, ClusterFile).
+
+-if(?DOCATTRS).
+-doc """
+Creates database objects equal to the number of online schedulers, using the
+[default cluster file](https://apple.github.io/foundationdb/administration.html#default-cluster-file).
+
+See `open_all/2` for more.
+""".
+-endif.
+-spec open_all() -> list(database()).
+open_all() ->
+    open_all(<<>>, []).
+
+-if(?DOCATTRS).
+-doc """
+Creates database objects equal to the number of online schedulers.
+
+See `open_all/2` for more.
+""".
+-endif.
+-spec open_all(cluster_filename()) -> list(database()).
+open_all(ClusterFile) ->
+    open_all(ClusterFile, []).
+
+-if(?DOCATTRS).
+-doc """
+Creates all database objects according to the work distribution strategy.
+
+*C API function*: [`fdb_create_database`](https://apple.github.io/foundationdb/api-c.html#c.fdb_create_database)
+
+**Why is this useful?** Due to the use of `m:persistent_term` by `open/2`, it can be beneficial to create all database
+objects shortly after startup, when the runtime system is fresh and the number of processes is low. Calling this function
+during your application start-up will ensure that you are in compliance with the [Best Practices for Using Persistent Terms](https://www.erlang.org/doc/apps/erts/persistent_term.html#module-best-practices-for-using-persistent-terms).
+""".
+-endif.
+-spec open_all(cluster_filename(), list(open_option())) -> list(database()).
+open_all(ClusterFile, Options) ->
+    Keys =
+        case proplists:get_value(dist, Options, scheduler_id) of
+            scheduler_id ->
+                N = erlang:system_info(schedulers_online),
+                [open_dist_key(scheduler_id, {ClusterFile, Sid}) || Sid <- lists:seq(1, N)];
+            cluster_file ->
+                [open_dist_key(cluster_file, ClusterFile)]
+        end,
+    [open_with_key(Key, ClusterFile) || Key <- Keys].
 
 -if(?DOCATTRS).
 -doc """
@@ -325,6 +423,28 @@ Opens a handle to the [Tenant](https://apple.github.io/foundationdb/tenants.html
 -spec open_tenant(database(), tenant_name()) -> tenant().
 open_tenant(?IS_DB = Db, TenantName) ->
     erlfdb_nif:database_open_tenant(Db, TenantName).
+
+-if(?DOCATTRS).
+-doc """
+Creates a database object, which serves as a handle to the FoundationDB server, using the [default cluster file](https://apple.github.io/foundationdb/administration.html#default-cluster-file).
+
+*C API function*: [`fdb_create_database`](https://apple.github.io/foundationdb/api-c.html#c.fdb_create_database)
+""".
+-endif.
+-spec create_database() -> database().
+create_database() ->
+    create_database(<<>>).
+
+-if(?DOCATTRS).
+-doc """
+Creates a database object, which serves as a handle to the FoundationDB server, using the provided cluster file string.
+
+*C API function*: [`fdb_create_database`](https://apple.github.io/foundationdb/api-c.html#c.fdb_create_database)
+""".
+-endif.
+-spec create_database(cluster_filename()) -> database().
+create_database(ClusterFile) ->
+    erlfdb_nif:create_database(ClusterFile).
 
 -if(?DOCATTRS).
 -doc """
@@ -2200,4 +2320,17 @@ flush_transaction_ready_messages({erlfdb_transaction, TxRef} = Tx) ->
             flush_transaction_ready_messages(Tx)
     after 0 ->
         ok
+    end.
+
+open_dist_key(Type, UidData) ->
+    {?MODULE, open, Type, UidData}.
+
+open_with_key(Key, ClusterFile) ->
+    case persistent_term:get(Key, undefined) of
+        undefined ->
+            Db = create_database(ClusterFile),
+            persistent_term:put(Key, Db),
+            Db;
+        Db ->
+            Db
     end.

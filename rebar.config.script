@@ -1,4 +1,5 @@
 FDBReleasesBaseUrl = "https://api.github.com/repos/apple/foundationdb/releases".
+IncludeDir = "/usr/local/include".
 
 % Detect rebar3 or mix
 RebarApi = {error, nofile} =/= code:ensure_loaded(rebar_api).
@@ -213,13 +214,23 @@ end.
 ErlOpts = proplists:get_value(erl_opts, CONFIG, []).
 CONFIG1 = proplists:delete(erl_opts, CONFIG).
 
+DynamicLibraryDir = case IsArch("darwin") of
+    true ->
+        "/usr/local/lib";
+    false ->
+        "/usr/lib"
+end.
+
 [
-    {erl_opts, ErlOpts ++ [{d, erlfdb_api_version, MaxAPIVersion}]},
+    {erl_opts, ErlOpts ++ [
+        {d, erlfdb_api_version, MaxAPIVersion},
+        {d, erlfdb_compile_time_external_client_directory, DynamicLibraryDir}
+    ]},
     {port_env, [
         {
             "(linux|solaris|freebsd|netbsd|openbsd|dragonfly|darwin|gnu)",
             "CFLAGS",
-            "$CFLAGS -I/usr/local/include -Ic_src/ -g -Wall -Werror " ++
+            "$CFLAGS -I"++IncludeDir++" -Ic_src/ -g -Wall -Werror " ++
                 (if
                     MaxAPIVersion < 730 ->
                         "-DFDB_API_VERSION=" ++ integer_to_list(MaxAPIVersion);
@@ -227,32 +238,15 @@ CONFIG1 = proplists:delete(erl_opts, CONFIG).
                         "-DFDB_USE_LATEST_API_VERSION=1"
                 end)
         },
-        {
-            "win32",
-            "CFLAGS",
-            "$CFLAGS /I\"c:/Program Files/foundationdb/include\" /O2 /DNDEBUG " ++
-                (if
-                    MaxAPIVersion < 730 ->
-                        "-DFDB_API_VERSION=" ++ integer_to_list(MaxAPIVersion);
-                    true ->
-                        "-DFDB_USE_LATEST_API_VERSION=1"
-                end)
-        },
-
         {
             "(linux|solaris|freebsd|netbsd|openbsd|dragonfly|gnu)",
             "LDFLAGS",
-            "$LDFLAGS -L/usr/local/lib -lfdb_c"
+            "$LDFLAGS -L"++DynamicLibraryDir++" -lfdb_c"
         },
         {
             "(darwin)",
             "LDFLAGS",
-            "$LDFLAGS -rpath /usr/local/lib -L/usr/local/lib -lfdb_c"
-        },
-        {
-            "win32",
-            "LDFLAGS",
-            "$LDFLAGS /LIBPATH:\"c:/Program Files/foundationdb/lib/foundationdb\" fdb_c.lib"
+            "$LDFLAGS -rpath "++DynamicLibraryDir++" -L"++DynamicLibraryDir++" -lfdb_c"
         }
     ]}
 ] ++ CONFIG1.
