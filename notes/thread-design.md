@@ -137,6 +137,6 @@ In these erlfdb versions, the `client_threads_per_version` env var is not suppor
 A short list of suggested reading in the FoundationDB source that will help the reader understand the details of the client threading model.
 
 1. `fdbclient/MultiVersionTransaction.actor.cpp`: implements the management of the local and external clients.
-2. `bindings/c/fdb_c.app`: defines MultiVersionApi as the default implementation
+2. `bindings/c/fdb_c.cpp`: defines MultiVersionApi as the default implementation
 2. `fdbclient/NativeAPI.actor.cpp`: implements the client (local or external). Specifically, maintains the reference to the thread.
 3. `flow/Net2.actor.cpp`: implements the event loop
