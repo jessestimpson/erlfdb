@@ -306,8 +306,6 @@ iex> :erlfdb.transactional(db, fn tx ->
 -doc """
 Opens a database using the [default cluster file](https://apple.github.io/foundationdb/administration.html#default-cluster-file).
 
-*C API function*: [`fdb_create_database`](https://apple.github.io/foundationdb/api-c.html#c.fdb_create_database)
-
 See `open/2` for more.
 """.
 -endif.
@@ -318,8 +316,6 @@ open() ->
 -if(?DOCATTRS).
 -doc """
 Opens a database using the provided cluster file string.
-
-*C API function*: [`fdb_create_database`](https://apple.github.io/foundationdb/api-c.html#c.fdb_create_database)
 
 See `open/2` for more.
 """.
@@ -334,24 +330,26 @@ Opens a database using the provided cluster file string.
 
 *C API function*: [`fdb_create_database`](https://apple.github.io/foundationdb/api-c.html#c.fdb_create_database)
 
-`open/2` is optimized to only create the minimum number of database objects necessary based on the configuration
-options provided. For optimal performance, your application should call `open/2` very frequently. This will ensure
-even distribution of work among client threads when using the [`client_threads_per_version`](thread-design.html) network option.
+`open/2` will lazily create and store a number of database objects based on the configuration
+options provided. For optimal performance, your application should call `open/2` when a `t:database/0` object is
+needed. Doing so will ensure even distribution of work among client threads when using the
+[`client_threads_per_version`](thread-design.html) network option.
 
 ## Options
 
-  - `dist`: Provides a work distribution stategy, which defaults to `scheduler_id`. See below for details.
+  - `dist`: Provides a work distribution stategy, which defaults to `scheduler_id`.
 
 ### Work distribution with the `dist` option
 
-It's usually desirable for the application to create a limited number of database objects that can be re-used
+It's usually desirable for the application to create a certain number of database objects that can be re-used
 across many transactions. The `dist` option provides some common strategies for doing so. If you want to implement
 your own, use `create_database/1` directly instead.
 
   - `scheduler_id`: (default) A new database object will be created for each scheduler id in the running system for each unique
     cluster file.  This strategy does not claim that a particular item of work will remain on a scheduler -- only
     that the scheduler_id itself is helpful in distributing work in a roughly even fashion.
-  - `cluster_file`: A new database object will be created for each unique cluster file provided.
+  - `cluster_file`: A new database object will be created for each unique cluster file provided. This option is not
+    compatible with `client_threads_per_version` > 1.
 
 """.
 -endif.

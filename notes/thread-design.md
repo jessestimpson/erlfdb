@@ -99,7 +99,8 @@ Instead of choosing a specific value, you may wish for erlfdb to scale dynamical
 - `{erlang, system_info, [schedulers_online]}`
 - `{erlang, system_info, [dirty_io_schedulers]}`
 
-> ** Note **: These suggestions are made simply as a convenience for automatic scaling, and none of these choices will associate erlfdb external client threads with Erlang's schdeulers or dirty_io_schedulers. External client threads will always be created **in addition to** and **not replacements for** any of the Erlang VM's OS threads.
+> #### Info {: .info}
+> These suggestions are made simply as a convenience for automatic scaling, and none of these choices will associate erlfdb external client threads with Erlang's schdeulers or dirty_io_schedulers. External client threads will always be created **in addition to** and **not replacements for** any of the Erlang VM's OS threads.
 
 ## Making use of External Client Threads
 
@@ -116,19 +117,21 @@ It may be beneficial to create all database objects during startup. The function
 
 ### Thread lifecycle
 
-When `client_threads_per_version` > 1, the behavior of erlfdb is as follows:
+When `client_threads_per_version` == 1,
 
-1. `enif_thread_create` is called exactly once. This is still the 'local client network thread' a.k.a. the libfdb_c Main Thread. This thread is given the name `fdb:network_thread`.
-2. libfdb_c creates N copies of the dynamic library into temp files on the filesystem. Each copy will house 1 of the external threads.
-3. N threads are created by libfdb_c. These threads are *not* created with `enif_thread_create`, because the creation is contained in logic internal to libfdb_c. Each of these threads is given the name `fdb-<vsn>-<index>`. If the thread name is longer than 15 chars, it's instead given the name `fdb-<vsn>`. If this is longer than 15 chars, it's given the name `fdb-external`. On a Linux system, these threads are visible with `top -H -p $beam_pid`.
-4. Each database object (via `erlfdb:create_database/1`) is linked to a client thread at the time of creation. The threads are distributed in a round-robin fashion. Therefore, to make use of N client threads, you must have N database objects.
-5. Shutdown: Each external thread is waited upon immediately after the local client network event loop returns. Thus, you may consider the external client threads as "children" of the local client network thread created by `enif_thread_create`. This relationship is necessary and sufficient for the Erlang VM and its operator to maintain control over the OS threads on the system.
+1. `enif_thread_create` is called exactly once. This is the 'local client network thread' a.k.a. the libfdb_c Main Thread. This thread is given the name `fdb:network_thread`.
+2. Shutdown: The erlfdb NIF uses enif callbacks to ensure the event loop is stopped and the thread is joined before the VM is terminated.
+
+When `client_threads_per_version` > 1, the behavior described above is true; additionally:
+
+1. libfdb_c creates N copies of the dynamic library into temp files on the filesystem. Each copy will house 1 of the external threads.
+2. N threads are created by libfdb_c. These threads are *not* created with `enif_thread_create`, because the creation is contained in logic internal to libfdb_c. Each of these threads is given the name `fdb-<vsn>-<index>`. If the thread name is longer than 15 chars, it's instead given the name `fdb-<vsn>`. If this is longer than 15 chars, it's given the name `fdb-external`. On a Linux system, these threads are visible with `top -H -p $beam_pid`.
+3. Each database object (via `erlfdb:create_database/1`) is linked to a client thread at the time of creation. The threads are distributed in a round-robin fashion. Therefore, to make use of N client threads, you must have N database objects.
+4. Shutdown: Each external thread is waited upon immediately after the local client network event loop returns. Thus, you may consider the external client threads as "children" of the local client network thread created by `enif_thread_create`. This relationship is necessary and sufficient for the Erlang VM and its operator to maintain control over the OS threads on the system.
 
 ## Past Versions 0.0 - 0.2
 
-In versions 0.0.x - 0.2.x, the env var `network_options` defaults to `[]`. The behavior of the erlfdb NIF with respect to thread creation is as follows:
-
-`enif_thread_create` is called exactly once. This is the 'local client network thread', of which libfdb_c can only have one maximum. No other threads are started by libfdb_c. In other words, there is 1 event loop for the entire BEAM.
+In versions 0.0.x - 0.2.x, the env var `network_options` defaults to `[]`. The behavior of the erlfdb NIF with respect to thread creation is equivalent to having `client_threads_per_version` == 1, as decribed above.
 
 In these erlfdb versions, the `client_threads_per_version` env var is not supported, so horizontal scaling of a single client is not possible. Instead, consider starting multiple Erlang VMs in order to distribute your workload, or upgrade to erlfdb >= 0.3.
 
@@ -138,5 +141,5 @@ A short list of suggested reading in the FoundationDB source that will help the 
 
 1. `fdbclient/MultiVersionTransaction.actor.cpp`: implements the management of the local and external clients.
 2. `bindings/c/fdb_c.cpp`: defines MultiVersionApi as the default implementation
-2. `fdbclient/NativeAPI.actor.cpp`: implements the client (local or external). Specifically, maintains the reference to the thread.
-3. `flow/Net2.actor.cpp`: implements the event loop
+3. `fdbclient/NativeAPI.actor.cpp`: implements the client (local or external). Specifically, maintains the reference to the thread.
+4. `flow/Net2.actor.cpp`: implements the event loop
