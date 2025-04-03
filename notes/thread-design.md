@@ -129,6 +129,26 @@ When `client_threads_per_version` > 1, the behavior described above is true; add
 3. Each database object (via `erlfdb:create_database/1`) is linked to a client thread at the time of creation. The threads are distributed in a round-robin fashion. Therefore, to make use of N client threads, you must have N database objects.
 4. Shutdown: Each external thread is waited upon immediately after the local client network event loop returns. Thus, you may consider the external client threads as "children" of the local client network thread created by `enif_thread_create`. This relationship is necessary and sufficient for the Erlang VM and its operator to maintain control over the OS threads on the system.
 
+## Tracing
+
+To enable client tracing (C API Option `FDB_NET_OPTION_TRACE_ENABLE`), set the following:
+
+```erlang
+[
+    {erlfdb, [
+        {network_options, [
+            % `trace_enable`:
+            % A directory on the filesystem where trace files will be written.
+            {trace_enable, <<"/path/to/existing/directory">>},
+
+            % `trace_format`:
+            % The format of the trace files. Supported formats are `<<"xml">>` (the default) and `<<"json">>`.
+            {trace_format, <<"xml">>}
+        ]}
+    ]}
+].
+```
+
 ## Past Versions 0.0 - 0.2
 
 In versions 0.0.x - 0.2.x, the env var `network_options` defaults to `[]`. The behavior of the erlfdb NIF with respect to thread creation is equivalent to having `client_threads_per_version` == 1, as decribed above.
