@@ -591,9 +591,18 @@ static ERL_NIF_TERM erlfdb_network_set_option(ErlNifEnv *env, int argc,
 #if FDB_API_VERSION >= 630
     else if (IS_ATOM(argv[0], enable_run_loop_profiling)) {
         option = FDB_NET_OPTION_ENABLE_RUN_LOOP_PROFILING;
-    }
+    } else if (IS_ATOM(argv[0], client_threads_per_version)) {
+        option = FDB_NET_OPTION_CLIENT_THREADS_PER_VERSION;
 #endif
-    else {
+    } else if (IS_ATOM(argv[0], ignore_external_client_failures)) {
+#if FDB_API_VERSION >= 730
+        option = FDB_NET_OPTION_IGNORE_EXTERNAL_CLIENT_FAILURES;
+#else
+    // 7.3 added some new checks for loading external client libraries
+    // and those checks are not present in the older versions
+    return ATOM_ok;
+#endif
+    } else {
         return enif_make_badarg(env);
     }
 

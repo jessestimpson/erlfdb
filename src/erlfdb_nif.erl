@@ -160,7 +160,9 @@ The NIF wrapper around all FoundationDB C API function calls.
     | disable_client_statistics_logging
     | enable_slow_task_profiling
     % API version 630+
-    | enable_run_loop_profiling.
+    | enable_run_loop_profiling
+    | client_threads_per_version
+    | ignore_external_client_failures.
 
 -type database_option() ::
     location_cache_size
@@ -578,22 +580,43 @@ init() ->
                 end,
             ok = select_api_version(Vsn),
 
+            NetOptionsDefaults = erlfdb_network_options:get_defaults(),
+
             Opts =
                 case application:get_env(erlfdb, network_options) of
-                    {ok, O} when is_list(O) -> O;
-                    undefined -> []
+                    {ok, O} when is_list(O) ->
+                        erlfdb_network_options:merge(NetOptionsDefaults, O);
+                    undefined ->
+                        NetOptionsDefaults
                 end,
 
-            lists:foreach(
-                fun(Option) ->
-                    case Option of
-                        Name when is_atom(Name) ->
-                            ok = network_set_option(Name, <<>>);
-                        {Name, Value} when is_atom(Name) ->
-                            ok = network_set_option(Name, Value)
-                    end
+            Opts2 = lists:map(
+                fun
+                    ({Name, {M, F, A}}) when
+                        is_atom(Name) andalso is_atom(M) andalso is_atom(F) andalso is_list(A)
+                    ->
+                        Value = erlang:apply(M, F, A),
+                        {Name, Value};
+                    (O) ->
+                        O
                 end,
                 Opts
+            ),
+
+            application:set_env(erlfdb, network_options_resolved, Opts2),
+
+            lists:foreach(
+                fun
+                    (Name) when is_atom(Name) ->
+                        ok = network_set_option(Name, <<>>);
+                    ({Name, false}) when is_atom(Name) ->
+                        ok;
+                    ({Name, true}) when is_atom(Name) ->
+                        ok = network_set_option(Name, <<>>);
+                    ({Name, Value}) when is_atom(Name) ->
+                        ok = network_set_option(Name, Value)
+                end,
+                Opts2
             ),
 
             ok = erlfdb_setup_network()

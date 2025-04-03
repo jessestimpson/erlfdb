@@ -16,7 +16,7 @@
 
 
 -record(st, {
-    db,
+    dbs,
     tx_mgr,
     tx_name,
     instructions,
@@ -313,11 +313,12 @@ append_dir(St, Dir) ->
     }.
 
 
-init_run_loop(Db, Prefix) ->
+init_run_loop(Dbs, Prefix) ->
     init_rand(),
     {StartKey, EndKey} = erlfdb_tuple:range({Prefix}),
+    {Db, Dbs2} = next_db(Dbs),
     St = #st{
-        db = Db,
+        dbs = Dbs2,
         tx_name = Prefix,
         instructions = erlfdb:get_range(Db, StartKey, EndKey),
         op_tuple = undefined,
@@ -345,11 +346,13 @@ run_loop(#st{instructions = []} = St) ->
 
 run_loop(#st{} = St) ->
     #st{
-        db = Db,
+        dbs = Dbs,
         tx_name = TxName,
         instructions = Instructions,
         index = Index
     } = St,
+
+    {Db, Dbs2} = next_db(Dbs),
 
     [{_InstrKey, InstrVal} | RestStuctions] = Instructions,
 
@@ -379,6 +382,7 @@ run_loop(#st{} = St) ->
     end,
 
     PreSt = St#st{
+        dbs = Dbs2,
         op_tuple = OpTuple,
         is_db = IsDb,
         is_snapshot = IsSS,
@@ -453,13 +457,16 @@ execute(_TxObj, St, <<"WAIT_FUTURE">>) ->
     St;
 
 execute(_TxObj, St, <<"NEW_TRANSACTION">>) ->
-    new_transaction(St#st.db, St#st.tx_name),
-    St;
+    {Db, Dbs} = next_db(St#st.dbs),
+    new_transaction(Db, St#st.tx_name),
+    St#st{dbs = Dbs};
 
 execute(_TxObj, St, <<"USE_TRANSACTION">>) ->
     TxName = stack_pop(St),
-    switch_transaction(St#st.db, TxName),
+    {Db, Dbs} = next_db(St#st.dbs),
+    switch_transaction(Db, TxName),
     St#st{
+        dbs = Dbs,
         tx_name = TxName
     };
 
@@ -584,8 +591,9 @@ execute(_TxObj, St, <<"LOG_STACK">>) ->
     {_, RevItems} = lists:foldl(fun({Idx, Item}, {Pos, Acc}) ->
         {Pos - 1, [{Pos, {Idx, Item}} | Acc]}
     end, InitAcc, AllItems),
-    log_stack(St#st.db, Prefix, RevItems),
-    St;
+    {Db, Dbs} = next_db(St#st.dbs),
+    log_stack(Db, Prefix, RevItems),
+    St#st{dbs=Dbs};
 
 execute(TxObj, St, <<"ATOMIC_OP">>) ->
     [{utf8, OpTypeName}, Key, Val] = stack_pop(St, 3),
@@ -753,18 +761,19 @@ execute(_TxObj, St, <<"DECODE_DOUBLE">>) ->
 
 execute(_TxObj, St, <<"START_THREAD">>) ->
     #st{
-        db = Db,
+        dbs = Dbs,
         pids = Pids
     } = St,
     Prefix = stack_pop(St),
-    Pid = spawn_monitor(fun() -> init_run_loop(Db, Prefix) end),
+    Pid = spawn_monitor(fun() -> init_run_loop(Dbs, Prefix) end),
     St#st{pids = [Pid | Pids]};
 
 execute(_TxObj, St, <<"WAIT_EMPTY">>) ->
     Prefix = stack_pop(St),
-    wait_for_empty(St#st.db, Prefix),
+    {Db, Dbs} = next_db(St#st.dbs),
+    wait_for_empty(Db, Prefix),
     stack_push(St, <<"WAITED_FOR_EMPTY">>),
-    St;
+    St#st{dbs = Dbs};
 
 execute(_TxObj, St, <<"UNIT_TESTS">>) ->
     % TODO
@@ -1058,7 +1067,13 @@ main([Prefix, APIVsn, ClusterFileStr]) ->
     %% io:format("Running tests: ~s ~s ~s~n", [Prefix, APIVsn, ClusterFileStr]),
 
     maybe_cover_compile(),
+    application:load(erlfdb),
     application:set_env(erlfdb, api_version, list_to_integer(APIVsn)),
-    Db = erlfdb:open(iolist_to_binary(ClusterFileStr)),
-    init_run_loop(Db, iolist_to_binary(Prefix)),
+    application:set_env(erlfdb, network_options, [{client_threads_per_version, 2}]),
+    ClusterFile = iolist_to_binary(ClusterFileStr),
+    Dbs = erlfdb:open_all(ClusterFile),
+    init_run_loop(Dbs, iolist_to_binary(Prefix)),
     maybe_write_coverdata(Prefix, APIVsn).
+
+next_db([Db|Dbs]) ->
+    {Db, Dbs ++ [Db]}.

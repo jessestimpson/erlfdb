@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.3 (TBD)
+
+### Enhancements
+
+  * (#46) Add support for `client_threads_per_version` config. See [FDB Client Threads](thread-design.html) for details.
+
+### New contributors
+
+Thank you to the following new contributors! :)
+
+  * weaversam8
+
 ## v0.2.4 (2025-03-23)
 
 ### Bug fixes
