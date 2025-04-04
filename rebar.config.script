@@ -214,17 +214,18 @@ end.
 ErlOpts = proplists:get_value(erl_opts, CONFIG, []).
 CONFIG1 = proplists:delete(erl_opts, CONFIG).
 
-DynamicLibraryDir = case IsArch("darwin") of
+DynamicLibrary = case IsArch("darwin") of
     true ->
-        "/usr/local/lib";
+        "/usr/local/lib/libfdb_c.dylib";
     false ->
-        "/usr/lib"
+        "/usr/lib/libfdb_c.so"
 end.
+DynamicLibraryDir = filename:dirname(DynamicLibrary).
 
 [
     {erl_opts, ErlOpts ++ [
         {d, erlfdb_api_version, MaxAPIVersion},
-        {d, erlfdb_compile_time_external_client_directory, DynamicLibraryDir}
+        {d, erlfdb_compile_time_external_client_library, DynamicLibrary}
     ]},
     {port_env, [
         {

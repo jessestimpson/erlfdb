@@ -6,23 +6,22 @@
 -moduledoc hidden.
 -endif.
 
--export([get_defaults/0, merge/2, compile_time_external_client_directory/0]).
+-export([get_defaults/0, merge/2, compile_time_external_client_library/0]).
 
--ifdef(erlfdb_compile_time_external_client_directory).
+-ifdef(erlfdb_compile_time_external_client_library).
 % The content of this defined var lives in rebar.config.script
--define(EXTERNAL_CLIENT_DIRECTORY_DEFAULT,
-    list_to_binary(?erlfdb_compile_time_external_client_directory)
+-define(EXTERNAL_CLIENT_LIBRARY_DEFAULT,
+    list_to_binary(?erlfdb_compile_time_external_client_library)
 ).
 -else.
--define(EXTERNAL_CLIENT_DIRECTORY_DEFAULT, <<>>).
+-define(EXTERNAL_CLIENT_LIBRARY_DEFAULT, <<>>).
 -endif.
 
 get_defaults() ->
     [
-        {ignore_external_client_failures, true},
         {callbacks_on_external_threads, true},
-        {external_client_directory,
-            {erlfdb_network_options, compile_time_external_client_directory, []}},
+        {external_client_library,
+            {erlfdb_network_options, compile_time_external_client_library, []}},
         {client_threads_per_version, 1}
     ].
 
@@ -46,5 +45,5 @@ merge(A, B) ->
     ),
     lists:reverse(L).
 
-compile_time_external_client_directory() ->
-    ?EXTERNAL_CLIENT_DIRECTORY_DEFAULT.
+compile_time_external_client_library() ->
+    ?EXTERNAL_CLIENT_LIBRARY_DEFAULT.

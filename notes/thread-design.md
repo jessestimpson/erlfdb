@@ -33,13 +33,6 @@ In versions 0.3 and above, the env var `network_options` defaults to
 [
     {erlfdb, [
         {network_options, [
-            % `ignore_external_client_failures`:
-            % Optional: Allows your client to prepare fdbserver version
-            % upgrades. When a future client library fails to load, it's not a
-            % failure condition, because we know it will be valid at some
-            % point in the future.
-            {ignore_external_client_failures, true},
-
             % `callbacks_on_external_threads`:
             % Allows libfdb_c to apply future callbacks on external threads,
             % which increases the throughput of future resolution. erlfdb
@@ -48,20 +41,18 @@ In versions 0.3 and above, the env var `network_options` defaults to
             % desirable
             {callbacks_on_external_threads, true},
 
-            % `external_client_directory`:
-            % Points libfdb_c to the directory containing the dynamic
-            % library(ies) to be loaded. libfdb_c will copy each .so N times
-            % to temporary files on the filesystem so that they can be
-            % individually loaded. Normally the value is a binary string of
-            % the directory on the filesystem containing the dynamic
-            % library(ies).
+            % `external_client_library`:
+            % Points libfdb_c to the dynamic library to be loaded. libfdb_c
+            % will copy this .so N times to temporary files on the filesystem
+            % so that they can be individually loaded. Normally the value is
+            % a binary string of the filepath on the filesystem.
             %
             % You may also provide an `{M, F, A}` tuple. If you do, the function
             % is executed at the time the `erlfdb_nif` module is loaded. The
             % return must be a binary string. This value is used as the
-            % permanent value for `external_client_directory` for the lifetime
+            % permanent value for `external_client_library` for the lifetime
             % of the VM.
-            {external_client_directory, {erlfdb_network_options, compile_time_external_client_directory, []}},
+            {external_client_library, {erlfdb_network_options, compile_time_external_client_library, []}},
 
             % `client_threads_per_version`:
             % Number of threads to create per dynamic library. This is the
