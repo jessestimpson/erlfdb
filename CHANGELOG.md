@@ -1,6 +1,18 @@
 # Changelog
 
+## v0.3.1 (2025-04-04)
+
+### Bug fixes
+
+  * Use `external_client_library` instead of `external_client_directory` in default configuration. Using the directory should
+    be reserved for when the operator has a collection of libfdb_c isolated from other libraries on the system.
+
 ## v0.3 (2025-04-03)
+
+### API Change
+
+  * `erlfdb:open*` functions now retrieve database objects from persistent_term. Operators that wish to maintain their own
+    database objects should use `erlfdb:create_database/1` instead.
 
 ### Enhancements
 

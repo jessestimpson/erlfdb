@@ -36,7 +36,7 @@ Add erlfdb as a dependency in your Erlang project's rebar.config:
 ```erlang
 % rebar.config
 {deps, [
-    {erlfdb, "0.3.0"}
+    {erlfdb, "0.3.1"}
 ]}.
 ```
 
