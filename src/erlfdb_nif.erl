@@ -115,9 +115,11 @@ The NIF wrapper around all FoundationDB C API function calls.
 
 -type version() :: integer().
 
+-type compares() :: lt | lteq | gt | gteq.
+-type or_equal() :: boolean() | 0 | 1.
 -type key_selector() ::
-    {Key :: binary(), lt | lteq | gt | gteq}
-    | {Key :: binary(), OrEqual :: boolean(), Offset :: integer()}.
+    {key(), compares() | or_equal()}
+    | {key(), compares() | or_equal(), integer()}.
 
 -type future_result() ::
     database()
