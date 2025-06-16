@@ -314,12 +314,19 @@ iex> :erlfdb.transactional(db, fn tx ->
 -doc """
 Opens a database using the [default cluster file](https://apple.github.io/foundationdb/administration.html#default-cluster-file).
 
+If the env var erlfdb:cluster_file is set, it will be used. Otherwise, uses the libfdb_c default.
+
 See `open/2` for more.
 """.
 -endif.
 -spec open() -> database().
 open() ->
-    open(<<>>).
+    case application:get_env(erlfdb, cluster_file) of
+        {ok, CF} ->
+            open(CF);
+        undefined ->
+            open(<<>>)
+    end.
 
 -if(?DOCATTRS).
 -doc """
