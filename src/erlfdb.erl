@@ -164,6 +164,7 @@ iex> :erlfdb.transactional(db, fn tx ->
 
     % Watches
     watch/2,
+    watch/3,
     get_and_watch/2,
     set_and_watch/3,
     clear_and_watch/2,
@@ -180,6 +181,7 @@ iex> :erlfdb.transactional(db, fn tx ->
     get_read_version/1,
     get_committed_version/1,
     get_versionstamp/1,
+    get_versionstamp/2,
 
     % Transaction size info
     get_approximate_size/1,
@@ -216,6 +218,7 @@ iex> :erlfdb.transactional(db, fn tx ->
     fold_option/0,
     future/0,
     future_ready_message/0,
+    get_versionstamp_option/0,
     key/0,
     key_selector/0,
     kv/0,
@@ -232,7 +235,8 @@ iex> :erlfdb.transactional(db, fn tx ->
     value/0,
     version/0,
     wait_option/0,
-    watch_future_ready_message/0
+    watch_future_ready_message/0,
+    watch_option/0
 ]).
 
 -define(IS_FUTURE, {erlfdb_future, _, _}).
@@ -284,6 +288,8 @@ iex> :erlfdb.transactional(db, fn tx ->
     {chunk_size, non_neg_integer()}.
 -type future() :: erlfdb_nif:future().
 -type future_ready_message() :: transaction_future_ready_message() | watch_future_ready_message().
+-type get_versionstamp_option() ::
+    {to, pid()}.
 -type key() :: erlfdb_nif:key().
 -type kv() :: {key(), value()}.
 -type key_selector() :: erlfdb_nif:key_selector().
@@ -301,6 +307,8 @@ iex> :erlfdb.transactional(db, fn tx ->
 -type version() :: erlfdb_nif:version().
 -type wait_option() :: {timeout, non_neg_integer() | infinity} | {with_index, boolean()}.
 -type watch_future_ready_message() :: {reference(), ready}.
+-type watch_option() ::
+    {to, pid()}.
 
 -if(?DOCATTRS).
 -doc """
@@ -1670,11 +1678,24 @@ atomic_op(?IS_SS = SS, Key, Param, Op) ->
 
 -if(?DOCATTRS).
 -doc """
+Equivalent to `watch(DbOrTx, Key, []).`
+""".
+-endif.
+-spec watch(database() | transaction() | snapshot(), key()) -> future().
+watch(DbTxSS, Key) ->
+    watch(DbTxSS, Key, []).
+
+-if(?DOCATTRS).
+-doc """
 Creates a watch on a key.
 
 [An Overview how Watches Work](https://github.com/apple/foundationdb/wiki/An-Overview-how-Watches-Work)
 
 *C API function*: [`fdb_transaction_watch`](https://apple.github.io/foundationdb/api-c.html#c.fdb_transaction_watch)
+
+## Options
+
+  - `to`: The local pid to which the `t:watch_future_ready_message/0` should be sent. Defaults to `self()`.
 
 ## Examples
 
@@ -1689,7 +1710,7 @@ want to know what the value is.
 ```
 
 In this example, we rely on the future's `ready` message to be delivered to our calling process. This form of the
-ready message (`t:watch_future_ready_message/0`) is valid only for futures created by `watch/2`.
+ready message (`t:watch_future_ready_message/0`) is valid only for futures created by `watch/2` and `watch/3`.
 
 ```erlang
 1> Db = erlfdb:open(),
@@ -1701,15 +1722,16 @@ ready message (`t:watch_future_ready_message/0`) is valid only for futures creat
 ```
 """.
 -endif.
--spec watch(database() | transaction() | snapshot(), key()) -> future().
-watch(?IS_DB = Db, Key) ->
+-spec watch(database() | transaction() | snapshot(), key(), list(watch_option())) -> future().
+watch(?IS_DB = Db, Key, Options) ->
     transactional(Db, fun(Tx) ->
-        watch(Tx, Key)
+        watch(Tx, Key, Options)
     end);
-watch(?IS_TX = Tx, Key) ->
-    erlfdb_nif:transaction_watch(Tx, Key);
-watch(?IS_SS = SS, Key) ->
-    watch(?GET_TX(SS), Key).
+watch(?IS_TX = Tx, Key, Options) ->
+    To = proplists:get_value(to, Options, self()),
+    erlfdb_nif:transaction_watch(Tx, Key, To);
+watch(?IS_SS = SS, Key, Options) ->
+    watch(?GET_TX(SS), Key, Options).
 
 -if(?DOCATTRS).
 -doc """
@@ -1862,18 +1884,31 @@ get_committed_version(?IS_SS = SS) ->
 
 -if(?DOCATTRS).
 -doc """
+Equivalent to `get_versionstamp(Tx).`
+""".
+-endif.
+get_versionstamp(Tx) ->
+    get_versionstamp(Tx, []).
+
+-if(?DOCATTRS).
+-doc """
 Gets the versionstamp value that was used by any versionstamp operations in this transaction.
 
 This is not needed in simple cases.
 
+## Options
+
+  - `to`: The local pid to which the `t:watch_future_ready_message/0` should be sent. Defaults to `self()`.
+
 *C API function*: [`fdb_transaction_get_versionstamp`](https://apple.github.io/foundationdb/api-c.html#c.fdb_transaction_get_versionstamp)
 """.
 -endif.
--spec get_versionstamp(transaction() | snapshot()) -> future().
-get_versionstamp(?IS_TX = Tx) ->
-    erlfdb_nif:transaction_get_versionstamp(Tx);
-get_versionstamp(?IS_SS = SS) ->
-    get_versionstamp(?GET_TX(SS)).
+-spec get_versionstamp(transaction() | snapshot(), list(get_versionstamp_option())) -> future().
+get_versionstamp(?IS_TX = Tx, Options) ->
+    To = proplists:get_value(to, Options, self()),
+    erlfdb_nif:transaction_get_versionstamp(Tx, To);
+get_versionstamp(?IS_SS = SS, Options) ->
+    get_versionstamp(?GET_TX(SS), Options).
 
 -if(?DOCATTRS).
 -doc """

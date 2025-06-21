@@ -92,7 +92,7 @@ static void erlfdb_future_cb(FDBFuture *fdb_future, void *data) {
 }
 
 static ERL_NIF_TERM erlfdb_create_future(ErlNifEnv *env, ERL_NIF_TERM *tx_ref,
-                                         FDBFuture *future,
+                                         ErlNifPid *to, FDBFuture *future,
                                          ErlFDBFutureType ftype) {
     ErlFDBFuture *f;
     ERL_NIF_TERM ref = enif_make_ref(env);
@@ -102,7 +102,11 @@ static ERL_NIF_TERM erlfdb_create_future(ErlNifEnv *env, ERL_NIF_TERM *tx_ref,
     f = enif_alloc_resource(ErlFDBFutureRes, sizeof(ErlFDBFuture));
     f->future = future;
     f->ftype = ftype;
-    enif_self(env, &(f->pid));
+    if (to == NULL) {
+        enif_self(env, &(f->pid));
+    } else {
+        f->pid = *to;
+    }
     f->pid_env = env;
     f->msg_env = enif_alloc_env();
     if (tx_ref != NULL) {
@@ -1236,7 +1240,7 @@ erlfdb_transaction_get_read_version(ErlNifEnv *env, int argc,
 
     future = fdb_transaction_get_read_version(t->transaction);
 
-    return erlfdb_create_future(env, &tx_ref, future, ErlFDB_FT_INT64);
+    return erlfdb_create_future(env, &tx_ref, NULL, future, ErlFDB_FT_INT64);
 }
 
 static ERL_NIF_TERM erlfdb_transaction_get(ErlNifEnv *env, int argc,
@@ -1279,7 +1283,7 @@ static ERL_NIF_TERM erlfdb_transaction_get(ErlNifEnv *env, int argc,
     future = fdb_transaction_get(t->transaction, (uint8_t *)key.data, key.size,
                                  snapshot);
 
-    return erlfdb_create_future(env, &tx_ref, future, ErlFDB_FT_VALUE);
+    return erlfdb_create_future(env, &tx_ref, NULL, future, ErlFDB_FT_VALUE);
 }
 
 #if FDB_API_VERSION >= 630
@@ -1325,7 +1329,7 @@ erlfdb_transaction_get_estimated_range_size(ErlNifEnv *env, int argc,
         t->transaction, (uint8_t *)skey.data, skey.size, (uint8_t *)ekey.data,
         ekey.size);
 
-    return erlfdb_create_future(env, &tx_ref, future, ErlFDB_FT_INT64);
+    return erlfdb_create_future(env, &tx_ref, NULL, future, ErlFDB_FT_INT64);
 }
 #endif
 
@@ -1371,7 +1375,7 @@ static ERL_NIF_TERM erlfdb_transaction_get_key(ErlNifEnv *env, int argc,
     future = fdb_transaction_get_key(t->transaction, (uint8_t *)key.data,
                                      key.size, or_equal, offset, snapshot);
 
-    return erlfdb_create_future(env, &tx_ref, future, ErlFDB_FT_KEY);
+    return erlfdb_create_future(env, &tx_ref, NULL, future, ErlFDB_FT_KEY);
 }
 
 static ERL_NIF_TERM
@@ -1410,7 +1414,8 @@ erlfdb_transaction_get_addresses_for_key(ErlNifEnv *env, int argc,
     future = fdb_transaction_get_addresses_for_key(
         t->transaction, (uint8_t *)key.data, key.size);
 
-    return erlfdb_create_future(env, &tx_ref, future, ErlFDB_FT_STRING_ARRAY);
+    return erlfdb_create_future(env, &tx_ref, NULL, future,
+                                ErlFDB_FT_STRING_ARRAY);
 }
 
 static ERL_NIF_TERM erlfdb_transaction_get_range(ErlNifEnv *env, int argc,
@@ -1507,7 +1512,8 @@ static ERL_NIF_TERM erlfdb_transaction_get_range(ErlNifEnv *env, int argc,
         (uint8_t *)ekey.data, ekey.size, eor_equal, eoffset, limit,
         target_bytes, mode, iteration, snapshot, reverse);
 
-    return erlfdb_create_future(env, &tx_ref, future, ErlFDB_FT_KEYVALUE_ARRAY);
+    return erlfdb_create_future(env, &tx_ref, NULL, future,
+                                ErlFDB_FT_KEYVALUE_ARRAY);
 }
 
 static ERL_NIF_TERM
@@ -1561,7 +1567,8 @@ erlfdb_transaction_get_range_split_points(ErlNifEnv *env, int argc,
         t->transaction, (uint8_t *)skey.data, skey.size, (uint8_t *)ekey.data,
         ekey.size, chunk_size);
 
-    return erlfdb_create_future(env, &tx_ref, future, ErlFDB_FT_KEY_ARRAY);
+    return erlfdb_create_future(env, &tx_ref, NULL, future,
+                                ErlFDB_FT_KEY_ARRAY);
 }
 
 #if FDB_API_VERSION >= 730
@@ -1667,7 +1674,7 @@ erlfdb_transaction_get_mapped_range(ErlNifEnv *env, int argc,
         (uint8_t *)mapper.data, mapper.size, limit, target_bytes, mode,
         iteration, snapshot, reverse);
 
-    return erlfdb_create_future(env, &tx_ref, future,
+    return erlfdb_create_future(env, &tx_ref, NULL, future,
                                 ErlFDB_FT_MAPPEDKEYVALUE_ARRAY);
 }
 #else
@@ -1908,7 +1915,7 @@ static ERL_NIF_TERM erlfdb_transaction_commit(ErlNifEnv *env, int argc,
 
     future = fdb_transaction_commit(t->transaction);
 
-    return erlfdb_create_future(env, &tx_ref, future, ErlFDB_FT_VOID);
+    return erlfdb_create_future(env, &tx_ref, NULL, future, ErlFDB_FT_VOID);
 }
 
 static ERL_NIF_TERM
@@ -1953,6 +1960,7 @@ erlfdb_transaction_get_versionstamp(ErlNifEnv *env, int argc,
     ErlFDBSt *st = (ErlFDBSt *)enif_priv_data(env);
     ERL_NIF_TERM tx_ref;
     ErlFDBTransaction *t;
+    ErlNifPid to;
     FDBFuture *future;
     void *res;
 
@@ -1960,7 +1968,7 @@ erlfdb_transaction_get_versionstamp(ErlNifEnv *env, int argc,
         return enif_make_badarg(env);
     }
 
-    if (argc != 1) {
+    if (argc != 2) {
         return enif_make_badarg(env);
     }
 
@@ -1975,11 +1983,15 @@ erlfdb_transaction_get_versionstamp(ErlNifEnv *env, int argc,
         return enif_make_badarg(env);
     }
 
+    if (!enif_get_local_pid(env, argv[1], &to)) {
+        return enif_make_badarg(env);
+    }
+
     future = fdb_transaction_get_versionstamp(t->transaction);
 
     // get_versionstamp resolves after the commit, so we do not wish
     // to tie the future to the transaction ref
-    return erlfdb_create_future(env, NULL, future, ErlFDB_FT_KEY);
+    return erlfdb_create_future(env, NULL, &to, future, ErlFDB_FT_KEY);
 }
 
 static ERL_NIF_TERM erlfdb_transaction_watch(ErlNifEnv *env, int argc,
@@ -1988,6 +2000,7 @@ static ERL_NIF_TERM erlfdb_transaction_watch(ErlNifEnv *env, int argc,
     ERL_NIF_TERM tx_ref;
     ErlFDBTransaction *t;
     ErlNifBinary key;
+    ErlNifPid to;
     FDBFuture *future;
     void *res;
 
@@ -1995,7 +2008,7 @@ static ERL_NIF_TERM erlfdb_transaction_watch(ErlNifEnv *env, int argc,
         return enif_make_badarg(env);
     }
 
-    if (argc != 2) {
+    if (argc != 3) {
         return enif_make_badarg(env);
     }
 
@@ -2021,6 +2034,10 @@ static ERL_NIF_TERM erlfdb_transaction_watch(ErlNifEnv *env, int argc,
         return enif_make_badarg(env);
     }
 
+    if (!enif_get_local_pid(env, argv[2], &to)) {
+        return enif_make_badarg(env);
+    }
+
     future =
         fdb_transaction_watch(t->transaction, (uint8_t *)key.data, key.size);
 
@@ -2030,7 +2047,7 @@ static ERL_NIF_TERM erlfdb_transaction_watch(ErlNifEnv *env, int argc,
     // {reference(), ready} messages to be delivered to a caller's message
     // queue, and must be handled. For example, if called by a gen_server,
     // {reference(), ready} will appear in the handle_info.
-    return erlfdb_create_future(env, NULL, future, ErlFDB_FT_VOID);
+    return erlfdb_create_future(env, NULL, &to, future, ErlFDB_FT_VOID);
 }
 
 static ERL_NIF_TERM erlfdb_transaction_on_error(ErlNifEnv *env, int argc,
@@ -2070,7 +2087,7 @@ static ERL_NIF_TERM erlfdb_transaction_on_error(ErlNifEnv *env, int argc,
 
     future = fdb_transaction_on_error(t->transaction, fdb_err);
 
-    return erlfdb_create_future(env, &tx_ref, future, ErlFDB_FT_VOID);
+    return erlfdb_create_future(env, &tx_ref, NULL, future, ErlFDB_FT_VOID);
 }
 
 static ERL_NIF_TERM erlfdb_transaction_reset(ErlNifEnv *env, int argc,
@@ -2225,7 +2242,7 @@ erlfdb_transaction_get_approximate_size(ErlNifEnv *env, int argc,
 
     future = fdb_transaction_get_approximate_size(t->transaction);
 
-    return erlfdb_create_future(env, &tx_ref, future, ErlFDB_FT_INT64);
+    return erlfdb_create_future(env, &tx_ref, NULL, future, ErlFDB_FT_INT64);
 }
 
 static ERL_NIF_TERM
@@ -2451,8 +2468,8 @@ static ErlNifFunc funcs[] = {
     NIF_FUNC(erlfdb_transaction_atomic_op, 4),
     NIF_FUNC(erlfdb_transaction_commit, 1),
     NIF_FUNC(erlfdb_transaction_get_committed_version, 1),
-    NIF_FUNC(erlfdb_transaction_get_versionstamp, 1),
-    NIF_FUNC(erlfdb_transaction_watch, 2),
+    NIF_FUNC(erlfdb_transaction_get_versionstamp, 2),
+    NIF_FUNC(erlfdb_transaction_watch, 3),
     NIF_FUNC(erlfdb_transaction_on_error, 2),
     NIF_FUNC(erlfdb_transaction_reset, 1),
     NIF_FUNC(erlfdb_transaction_cancel, 1),

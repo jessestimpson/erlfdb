@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.3.3 (TBD)
+
+### Enhancements
+
+  * (#50) Add support for caller to provide local target pid for watch and get_versionstamp ready messages. (e.g, `erlfdb:watch(Tx, <<"key>>, [{to, Pid}])`)
+
+## v0.3.2 (2025-06-13)
+
+### Bug fixes
+
+  * Fix type spec for key_selector
+
 ## v0.3.1 (2025-04-04)
 
 ### Bug fixes

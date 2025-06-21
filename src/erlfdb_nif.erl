@@ -62,8 +62,8 @@ The NIF wrapper around all FoundationDB C API function calls.
     transaction_atomic_op/4,
     transaction_commit/1,
     transaction_get_committed_version/1,
-    transaction_get_versionstamp/1,
-    transaction_watch/2,
+    transaction_get_versionstamp/2,
+    transaction_watch/3,
     transaction_on_error/2,
     transaction_reset/1,
     transaction_cancel/1,
@@ -489,13 +489,13 @@ transaction_commit({erlfdb_transaction, Tx}) ->
 transaction_get_committed_version({erlfdb_transaction, Tx}) ->
     erlfdb_transaction_get_committed_version(Tx).
 
--spec transaction_get_versionstamp(transaction()) -> future().
-transaction_get_versionstamp({erlfdb_transaction, Tx}) ->
-    erlfdb_transaction_get_versionstamp(Tx).
+-spec transaction_get_versionstamp(transaction(), pid()) -> future().
+transaction_get_versionstamp({erlfdb_transaction, Tx}, To) ->
+    erlfdb_transaction_get_versionstamp(Tx, To).
 
--spec transaction_watch(transaction(), Key :: binary()) -> future().
-transaction_watch({erlfdb_transaction, Tx}, Key) ->
-    erlfdb_transaction_watch(Tx, Key).
+-spec transaction_watch(transaction(), Key :: binary(), To :: pid()) -> future().
+transaction_watch({erlfdb_transaction, Tx}, Key, To) ->
+    erlfdb_transaction_watch(Tx, Key, To).
 
 -spec transaction_on_error(transaction(), Error :: integer()) -> future().
 transaction_on_error({erlfdb_transaction, Tx}, Error) ->
@@ -711,8 +711,8 @@ erlfdb_transaction_clear_range(_Transaction, _StartKey, _EndKey) -> ?NOT_LOADED.
 erlfdb_transaction_atomic_op(_Transaction, _Mutation, _Key, _Value) -> ?NOT_LOADED.
 erlfdb_transaction_commit(_Transaction) -> ?NOT_LOADED.
 erlfdb_transaction_get_committed_version(_Transaction) -> ?NOT_LOADED.
-erlfdb_transaction_get_versionstamp(_Transaction) -> ?NOT_LOADED.
-erlfdb_transaction_watch(_Transaction, _Key) -> ?NOT_LOADED.
+erlfdb_transaction_get_versionstamp(_Transaction, _To) -> ?NOT_LOADED.
+erlfdb_transaction_watch(_Transaction, _Key, _To) -> ?NOT_LOADED.
 erlfdb_transaction_on_error(_Transaction, _Error) -> ?NOT_LOADED.
 erlfdb_transaction_reset(_Transaction) -> ?NOT_LOADED.
 erlfdb_transaction_cancel(_Transaction) -> ?NOT_LOADED.
