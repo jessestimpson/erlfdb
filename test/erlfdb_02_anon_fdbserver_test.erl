@@ -328,6 +328,65 @@ versionstamp_test() ->
     ?assert(is_binary(erlfdb:wait(VsFuture, [{timeout, 100}]))),
     ok.
 
+watch_test() ->
+    Db = erlfdb_sandbox:open(),
+    Tenant = erlfdb_util:create_and_open_test_tenant(Db, [empty]),
+    {erlfdb_future, MsgRef, _FRef} = erlfdb:transactional(Tenant, fun(Tx) ->
+        erlfdb:set(Tx, <<"hello_watch">>, <<"foo">>),
+        erlfdb:watch(Tx, <<"hello_watch">>)
+    end),
+    erlfdb:transactional(Tenant, fun(Tx) -> erlfdb:set(Tx, <<"hello_watch">>, <<"bar">>) end),
+    receive
+        {MsgRef, ready} ->
+            ?assertMatch(
+                <<"bar">>,
+                erlfdb:transactional(Tenant, fun(Tx) ->
+                    erlfdb:wait(erlfdb:get(Tx, <<"hello_watch">>))
+                end)
+            )
+    after 1000 ->
+        error(timeout)
+    end.
+
+watch_to_test() ->
+    Db = erlfdb_sandbox:open(),
+    Tenant = erlfdb_util:create_and_open_test_tenant(Db, [empty]),
+
+    ResultRef = make_ref(),
+    Self = self(),
+    Pid = spawn_link(fun() ->
+        fun Loop(MsgRef) ->
+            receive
+                {NewRef, new} ->
+                    Loop(NewRef);
+                {MsgRef, ready} ->
+                    Result = erlfdb:transactional(Tenant, fun(Tx) ->
+                        erlfdb:wait(erlfdb:get(Tx, <<"hello_watch">>))
+                    end),
+                    Self ! {ResultRef, Result}
+            after 1000 ->
+                error(timeout)
+            end
+        end(
+            undefined
+        )
+    end),
+
+    {erlfdb_future, MsgRef, _FRef} = erlfdb:transactional(Tenant, fun(Tx) ->
+        erlfdb:set(Tx, <<"hello_watch">>, <<"foo">>),
+        erlfdb:watch(Tx, <<"hello_watch">>, [{to, Pid}])
+    end),
+    Pid ! {MsgRef, new},
+
+    erlfdb:transactional(Tenant, fun(Tx) -> erlfdb:set(Tx, <<"hello_watch">>, <<"bar">>) end),
+
+    receive
+        {ResultRef, Result} ->
+            ?assertMatch(<<"bar">>, Result)
+    after 1000 ->
+        error(timeout)
+    end.
+
 get_set_get(DbOrTenant) ->
     Key = gen_key(8),
     Val = crypto:strong_rand_bytes(8),
