@@ -1,0 +1,608 @@
+# Tutorial - Elixir
+
+```elixir
+Mix.install([
+  {:erlfdb, "~> 0.3"}
+])
+```
+
+## Class Scheduling
+
+This tutorial provides a walkthrough of designing and building a simple application in Elixir using FoundationDB. In this tutorial, we use a few simple data modeling techniques. For a more in-depth discussion of data modeling in FoundationDB, see [Data Modeling](https://apple.github.io/foundationdb/data-modeling.html).
+
+The tutorial is a copy of the official [Class Scheduling Tutorial](https://apple.github.io/foundationdb/class-scheduling.html) tailored for Elixir.
+
+> erlfdb requires FoundationDB to be installed on your system. If you received an error on the Mix.install setup, please make sure you have both `foundationdb-server` and `foundationdb-clients` packages installed on your system. Also, ensure that your Livebook `PATH` environment variable includes the directory containing the `fdbcli` executable.
+
+The concepts in this tutorial are applicable to all the [languages](https://apple.github.io/foundationdb/api-reference.html) officially supported by FoundationDB and for [Erlang and Elixir via `:erlfdb`](https://hexdocs.pm/erlfdb/readme.html). If you prefer, you can see a version of this tutorial in:
+
+* [Python](https://apple.github.io/foundationdb/class-scheduling.html)
+* [Ruby](https://apple.github.io/foundationdb/class-scheduling-ruby.html)
+* [Java](https://apple.github.io/foundationdb/class-scheduling-java.html)
+* [Go](https://apple.github.io/foundationdb/class-scheduling-go.html)
+
+### First Steps
+
+Let's begin with "Hello world."
+
+If you have not yet installed FoundationDB, see [Getting Started on macOS](https://apple.github.io/foundationdb/getting-started-mac.html) or [Getting Started on Linux](https://apple.github.io/foundationdb/getting-started-linux.html).
+
+You can execute the commands in this tutorial within `iex` or from Livebook.
+
+The Python tutorial indicates that you must select the API version. Because the erlfdb library is compiled on your system, the library automatically detects the correct API version and applies it behind the scenes, so you don't have to.
+
+First, we open a FoundationDB database. `:erlfdb_sandbox` is provided to start a single fdbserver process with data stored in a temporary directory.
+
+```elixir
+db = :erlfdb_sandbox.open()
+```
+
+If you wish to connect to a real database, you must use `:erlfdb.open/0` to connect to the [default cluster file](https://apple.github.io/foundationdb/administration.html#default-cluster-file) or `:erlfdb.open/1`.
+
+<!-- livebook:{"force_markdown":true} -->
+
+```elixir
+# Connect to the default cluster file 
+db = :erlfdb.open()
+
+# Connect to a database specified in the file
+db = :erlfdb.open("/etc/foundationdb/fdb.cluster")
+```
+
+We are ready to use the database. First, let's simply write a key-value pair:
+
+```elixir
+:erlfdb.set(db, "hello", "world")
+```
+
+When this command returns without exception, the modification is durably stored in FoundationDB! Under the covers, this function creates a transation with a single modification. We'll see later how to do multiple operations in a single transaction. For now, let's read back the data:
+
+```elixir
+IO.puts("hello " <> :erlfdb.get(db, "hello"))
+```
+
+If this is all working, it looks like we are ready to start building a real application. For reference, here's the full code for "hello world":
+
+<!-- livebook:{"force_markdown":true} -->
+
+```elixir
+# In mix.exs deps, add: `{:erlfdb, "~> 0.3"}`
+db = :erlfdb.open()
+:erlfdb.set(db, "hello", "world")
+IO.puts("hello " <> :erlfdb.get(db, "hello"))
+```
+
+## Class scheduling application
+
+Let’s say we’ve been asked to build a class scheduling system for students and administrators. We’ll walk through the design and implementation of this application. Instead of typing everything in as you follow along, consider executing this file in [Livebook](https://livebook.dev/)!
+
+### Requirements
+
+We’ll need to let users list available classes and track which students have signed up for which classes. Here’s a first cut at the functions we’ll need to implement:
+
+<!-- livebook:{"force_markdown":true} -->
+
+```elixir
+available_classes()       # returns list of classes
+signup(student_id, class) # signs up a student for a class
+drop(student_id, class)   # drops a student from a class
+```
+
+### Data model
+
+First, we need to design a [data model](https://apple.github.io/foundationdb/data-modeling.html). A data model is just a method for storing our application data using keys and values in FoundationDB. We seem to have two main types of data: (1) a list of classes and (2) a record of which students will attend which classes. Let’s keep attending data like this:
+
+<!-- livebook:{"force_markdown":true} -->
+
+```elixir
+# ('attends', student, class) = ''
+```
+
+We’ll just store the key with a blank value to indicate that a student is signed up for a particular class. For this application, we’re going to think about a key-value pair’s key as a [tuple](https://apple.github.io/foundationdb/data-modeling.html#data-modeling-tuples). Encoding a tuple of data elements into a key is a very common pattern for an ordered key-value store.
+
+We’ll keep data about classes like this:
+
+<!-- livebook:{"force_markdown":true} -->
+
+```elixir
+# ('class', class_name) = seats_available
+```
+
+Similarly, each such key will represent an available class. We’ll use `seats_available` to record the number of seats available.
+
+### Directories and Subspaces
+
+FoundationDB includes a few tools that make it easy to model data using this approach. Let’s begin by opening a [directory](https://apple.github.io/foundationdb/developer-guide.html#developer-guide-directories) in the database:
+
+```elixir
+root = :erlfdb_directory.root()
+scheduling = :erlfdb_directory.create_or_open(db, root, ["scheduling"])
+```
+
+The `create_or_open/3` function returns a map that includes a [subspace](https://apple.github.io/foundationdb/developer-guide.html#developer-guide-sub-keyspaces) where we’ll store our application data. Each subspace has a fixed prefix it uses when defining keys. The prefix corresponds to the first element of a tuple. We decided that we wanted 'attends' and 'class' as our prefixes, so we’ll create new subspaces for them within the scheduling subspace.:
+
+```elixir
+course =
+  scheduling
+  |> :erlfdb_directory.get_subspace()
+  |> :erlfdb_subspace.create({"class"})
+
+attends =
+  scheduling
+  |> :erlfdb_directory.get_subspace()
+  |> :erlfdb_subspace.create({"attends"})
+```
+
+Subspaces have a `pack/2` function for defining keys. To store the records for our data model, we can use `:erlfdb_subspace.pack(attends, {s, c})` and `:erlfdb_subspace.pack(course, {c})`.
+
+### Transactions
+
+We’re going to rely on the powerful guarantees of transactions to help keep all of our modifications straight, so let’s look at how erlfdb lets you write a transactional function. Let’s write the very simple `add_class` function we will use to populate the database’s class list:
+
+```elixir
+defmodule Scheduling1 do
+  @total_seats_available 100
+
+  def add_class(db_or_tr, course, c) do
+    :erlfdb.transactional(db_or_tr, fn tr ->
+      key = :erlfdb_subspace.pack(course, {c})
+      value = :erlfdb_tuple.pack({@total_seats_available})
+      :erlfdb.set(tr, key, value)
+    end)
+  end
+end
+```
+
+In the `add_class/3` function, the argument `tr` represents the transactional context that the function executes within. Nearly all `:erlfdb` functions accept this as the first argument.
+
+For a FoundationDB database `db`:
+
+```elixir
+Scheduling1.add_class(db, course, "class1")
+```
+
+is equivalent to something like:
+
+<!-- livebook:{"force_markdown":true} -->
+
+```elixir
+defmodule ManualAddClassTransaction do
+  
+  def commit(db, course, c) do
+    tr = :erlfdb.create_transaction(db)
+    commit(tr, course, c)
+  end
+  
+  def commit(tr, course, c) do
+    try do
+      Scheduling.add_class(tr, course, c)
+      
+      tr
+      |> :erlfdb.commit()
+      |> :erlfdb.wait()
+    catch
+      :error, {:erlfdb_error, code} ->
+        
+        tr
+        |> :erlfdb.on_error(code)
+        |> :erlfdb.wait()
+        
+        commit(tr, course, c)
+    end
+  end
+
+end
+
+```
+
+<!-- livebook:{"break_markdown":true} -->
+
+If instead you pass a transaction for the `db_or_tx` argument, the transaction will be used directly, and it is assumed that the caller implements appropriate retry logic for errors. This permits transactionally decorated functions to be composed into larger transactions.
+
+For example:
+
+<!-- livebook:{"force_markdown":true} -->
+
+```elixir
+:erlfdb.transactional(db, fn tr ->
+  Scheduling.add_class(tr, course, "class1")
+  # ... and more
+end)
+```
+
+<!-- livebook:{"break_markdown":true} -->
+
+Note that by default, the operation will be retried an infinite number of times and the transaction will never time out. It is therefore recommended that the client choose a default timeout value that is suitable for their application. This can be set either at the transaction level using the `timeout` transaction option or at the database level with the `timeout` database option. For example, one can set a one minute timeout on each transaction by calling:
+
+<!-- livebook:{"force_markdown":true} -->
+
+```elixir
+# 60,000 ms = 1 minute
+:erlfdb.set_option(db, :timeout, <<60000::little-integer-size(64)>>)
+```
+
+<!-- livebook:{"break_markdown":true} -->
+
+### Making some sample classes
+
+Let's make some sample classes and put them in the `class_names` variable.
+
+```elixir
+# Generate 1,620 classes like '9:00 chem for dummies'
+levels = ["intro", "for dummies", "remedial", "101", "201", "301", "mastery", "lab", "seminar"]
+types = ["chem", "bio", "cs", "geometry", "calc", "alg", "film", "music", "art", "dance"]
+times = for h <- 2..20, do: "#{h}:00"
+class_names = for i <- times, t <- types, l <- levels, do: "#{i} #{t} #{l}"
+```
+
+### Initializing the database
+
+We initialize the database with our class list:
+
+```elixir
+defmodule Scheduling2 do
+  def init(db_or_tr, scheduling, course, class_names) do
+    {s, e} = :erlfdb_directory.range(scheduling)
+
+    :erlfdb.transactional(db_or_tr, fn tr ->
+      # Clear the directory
+      :erlfdb.clear_range(tr, s, e)
+
+      for class_name <- class_names,
+          do: add_class(tr, course, class_name)
+    end)
+  end
+
+  # Same as Scheduling1
+  def add_class(db_or_tr, course, c) do
+    :erlfdb.transactional(db_or_tr, fn tr ->
+      key = :erlfdb_subspace.pack(course, {c})
+      value = :erlfdb_tuple.pack({100})
+      :erlfdb.set(tr, key, value)
+    end)
+  end
+end
+```
+
+```elixir
+Scheduling2.init(db, scheduling, course, class_names)
+```
+
+### Listing available classes
+
+Before students can do anything else, they need to be able to retrieve a list of available classes from the database. Because FoundationDB sorts its data by key and therefore has efficient range-read capability, we can retrieve all of the classes in a single database call. We find this range of keys with `:erlfdb_subspace.range(course)`:
+
+```elixir
+defmodule Scheduling3 do
+  # ** New **
+  def available_classes(db_or_tr, course) do
+    {s, e} = :erlfdb_subspace.range(course)
+
+    :erlfdb.transactional(db_or_tr, fn tr ->
+      tr
+      |> :erlfdb.get_range(s, e)
+      |> Stream.map(fn {k, _v} ->
+        {c} = :erlfdb_subspace.unpack(course, k)
+        c
+      end)
+      |> Enum.to_list()
+    end)
+  end
+
+  def init(_db_or_tr, _scheduling, _course, _class_names) do
+    # Omitted for this step
+  end
+
+  def add_class(_db_or_tr, _course, _c) do
+    # Omitted for this step
+  end
+end
+```
+
+```elixir
+Scheduling3.available_classes(db, course)
+```
+
+The `:erlfdb_subspace.range/1` function returns a 2-tuple containing binaries that represent the start and end (exclusive) of the subspace key range. We retrieve all key-value pairs and unpack the key to extract the class name. The technique used here will hold all key-value pairs in system memory. `:erlfdb.fold_range/5` can be used for a memory-safe reduce operation.
+
+> Note: `:erlfdb.get_range/4` with the option `wait: false` can be used to control at what point in your transaction the wait occurs. The default is `wait: true`.
+> 
+> ```elixir
+> f = :erlfdb.get_range(tr, s, e, wait: false)
+> # ... other code ...
+> kvs = :erlfdb.wait(f)
+> ```
+> 
+> Deciding when to wait is an important part of designing your FDB transactions and keeping good performance characteristics. `:erlfdb` provides other wait-related functions that are worth exploring.
+
+### Signing up for a class and Dropping a class
+
+We finally get to the crucial function. A student has decided on a class (by name) and wants to sign up. The `signup` function will take a student (`s`) and a class (`c`):
+
+```elixir
+defmodule Scheduling4 do
+  # ** New **
+  def signup(db_or_tr, attends, s, c) do
+    :erlfdb.transactional(db_or_tr, fn tr ->
+      rec = :erlfdb_subspace.pack(attends, {s, c})
+      :erlfdb.set(tr, rec, "")
+    end)
+  end
+
+  # ** New **
+  def drop(db_or_tr, attends, s, c) do
+    :erlfdb.transactional(db_or_tr, fn tr ->
+      rec = :erlfdb_subspace.pack(attends, {s, c})
+      :erlfdb.clear(tr, rec)
+    end)
+  end
+
+  def available_classes(_db_or_tr, _course) do
+    # Omitted for this step
+  end
+
+  def init(_db_or_tr, _scheduling, _course, _class_names) do
+    # Omitted for this step
+  end
+
+  def add_class(_db_or_tr, _course, _c) do
+    # Omitted for this step
+  end
+end
+```
+
+For `signup`, we simply insert the appropriate record (with a blank value).
+
+For `drop`, we need to be able to delete a record from the database. We do this with the `clear/2` function.
+
+```elixir
+Scheduling4.signup(db, attends, "Alice", "10:00 bio 301")
+Scheduling4.drop(db, attends, "Alice", "10:00 bio 301")
+```
+
+### Done?
+
+We report back to the project leader that our application is done—students can sign up for, drop, and list classes. Unfortunately, we learn that a new problem has been discovered: popular classes are being over-subscribed. Our application now needs to enforce the class size constraint as students add and drop classes.
+
+### Seats are limited!
+
+Let’s go back to the data model. Remember that we stored the number of seats in the class in the value of the key-value entry in the class list. Let’s refine that a bit to track the remaining number of seats in the class. The initialization can work the same way. (In our example, all classes initially have 100 seats), but the `available_classes`, `signup`, and `drop` functions are going to have to change. We're going to define the whole final module. New sections of code are marked with comments. Below the module definition, we'll have some additional discussion about the changes.
+
+```elixir
+defmodule Scheduling do
+  @total_seats_available 100
+  def signup(db_or_tr, attends, course, s, c) do
+    :erlfdb.transactional(db_or_tr, fn tr ->
+      rec = :erlfdb_subspace.pack(attends, {s, c})
+
+      # ** New **
+      with :not_found <- :erlfdb.wait(:erlfdb.get(tr, rec)) do
+        {seats_left} =
+          tr
+          |> :erlfdb.get(:erlfdb_subspace.pack(course, {c}))
+          |> :erlfdb.wait()
+          |> :erlfdb_tuple.unpack()
+
+        if seats_left == 0, do: raise("No remaining seats")
+
+        :erlfdb.set(
+          tr,
+          :erlfdb_subspace.pack(course, {c}),
+          :erlfdb_tuple.pack({seats_left - 1})
+        )
+
+        :erlfdb.set(tr, rec, "")
+      else
+        _ ->
+          # already signed up
+          :ok
+      end
+    end)
+  end
+
+  def drop(db_or_tr, attends, course, s, c) do
+    :erlfdb.transactional(db_or_tr, fn tr ->
+      rec = :erlfdb_subspace.pack(attends, {s, c})
+
+      # ** New **
+      with :not_found <- :erlfdb.wait(:erlfdb.get(tr, rec)) do
+        # not taking this class
+        :ok
+      else
+        _ ->
+          {seats_left} = :erlfdb_tuple.unpack(:erlfdb_subspace.pack(course, {c}))
+
+          :erlfdb.set(
+            tr,
+            :erlfdb_subspace.pack(course, {c}),
+            :erlfdb_tuple.pack({seats_left + 1})
+          )
+
+          :erlfdb.clear(tr, rec)
+      end
+    end)
+  end
+
+  def available_classes(db_or_tr, course) do
+    {s, e} = :erlfdb_subspace.range(course)
+
+    :erlfdb.transactional(db_or_tr, fn tr ->
+      # ** New **
+      tr
+      |> :erlfdb.get_range(s, e)
+      |> Stream.map(fn {k, v} ->
+        {c} = :erlfdb_subspace.unpack(course, k)
+        {av} = :erlfdb_tuple.unpack(v)
+        {c, av}
+      end)
+      |> Stream.filter(fn {_c, av} -> av > 0 end)
+      |> Stream.map(fn {c, _av} -> c end)
+      |> Enum.to_list()
+    end)
+  end
+
+  def init(db_or_tr, scheduling, course, class_names) do
+    {s, e} = :erlfdb_directory.range(scheduling)
+
+    :erlfdb.transactional(db_or_tr, fn tr ->
+      # Clear the directory
+      :erlfdb.clear_range(tr, s, e)
+
+      for class_name <- class_names,
+          do: add_class(tr, course, class_name)
+    end)
+  end
+
+  def add_class(db_or_tr, course, c) do
+    :erlfdb.transactional(db_or_tr, fn tr ->
+      key = :erlfdb_subspace.pack(course, {c})
+      value = :erlfdb_tuple.pack({@total_seats_available})
+      :erlfdb.set(tr, key, value)
+    end)
+  end
+end
+```
+
+* `available_classes`: This is easy – we simply add a condition to check that the value is non-zero.
+
+* `signup`: We now have to check that we aren’t already signed up, since we don’t want a double sign up to decrease the number of seats twice. Then we look up how many seats are left to make sure there is a seat remaining so we don’t push the counter into the negative. If there is a seat remaining, we decrement the counter.
+
+* `drop`: Once again we check to see if the student is signed up and if not, we can just return as we don’t want to incorrectly increase the number of seats. We then adjust the number of seats by one by taking the current value, incrementing it by one, and then storing back.
+
+* Also notice that `signup` and `drop` now require both the `attends` and `course` subspaces, whereas previously they only required `attends`.
+
+Let's try it out. We choose a course for 100 students named "Bob", and sign them all up. Then, when Charlie attemps to signup, we get the exception.
+
+```elixir
+popular_class =
+  Scheduling.available_classes(db, course)
+  |> hd()
+```
+
+```elixir
+the_bobs = for i <- 1..100, do: "Bob #{i}"
+```
+
+```elixir
+Enum.each(
+  the_bobs,
+  &Scheduling.signup(db, attends, course, &1, popular_class)
+)
+```
+
+```elixir
+# RuntimeError: "No remaining seats" is expected
+Scheduling.signup(db, attends, course, "Charlie", popular_class)
+```
+
+### Concurrency and consistency
+
+The `signup` function is starting to get a bit complex; it now reads and writes a few different key-value pairs in the database. One of the tricky issues in this situation is what happens as multiple clients/students read and modify the database at the same time. Couldn’t two students both see one remaining seat and sign up at the same time?
+
+These are tricky issues without simple answers—unless you have transactions! Because these functions are defined as FoundationDB transactions, we can have a simple answer: Each transactional function behaves as if it is the only one modifying the database. There is no way for a transaction to ‘see’ another transaction change the database, and each transaction ensures that either all of its modifications occur or none of them do.
+
+Looking deeper, it is, of course, possible for two transactions to conflict. For example, if two people both see a class with one seat and sign up at the same time, FoundationDB must allow only one to succeed. This causes one of the transactions to fail to commit (which can also be caused by network outages, crashes, etc.). To ensure correct operation, applications need to handle this situation, usually via retrying the transaction. In this case, the conflicting transaction will be retried automatically by the `:erlfdb.transactional/2` function and will eventually lead to the correct result, a `"No remaining seats"` exception.
+
+Let's try it out with some aggressive concurrency:
+
+```elixir
+next_popular_class =
+  Scheduling.available_classes(db, course)
+  |> hd()
+```
+
+```elixir
+the_dans = for i <- 1..100, do: "Dan #{i}"
+```
+
+```elixir
+the_dans
+|> Task.async_stream(&Scheduling.signup(db, attends, course, &1, next_popular_class))
+|> Stream.run()
+```
+
+```elixir
+# RuntimeError: "No remaining seats" is expected
+Scheduling.signup(db, attends, course, "Charlie", next_popular_class)
+```
+
+As expected, the `next_popular_class` is no longer returned by `available_classes`.
+
+```elixir
+Scheduling.available_classes(db, course)
+|> hd()
+```
+
+### Idempotence
+
+Occasionally, a transaction might be retried even after it succeeds (for example, if the client loses contact with the cluster at just the wrong moment). This can cause problems if transactions are not written to be idempotent, i.e. to have the same effect if committed twice as if committed once. There are generic design patterns for [making any transaction idempotent](https://apple.github.io/foundationdb/developer-guide.html#developer-guide-unknown-results), but many transactions are naturally idempotent. For example, all of the transactions in this tutorial are idempotent.
+
+### More features?!
+
+Of course, as soon as our new version of the system goes live, we hear of a trick that certain students are using. They are signing up for all classes immediately, and only later dropping those that they don’t want to take. This has led to an unusable system, and we have been asked to fix it. We decide to limit students to five classes:
+
+<!-- livebook:{"force_markdown":true} -->
+
+```elixir
+    def signup(db_or_tr, attends, course, s, c) do
+        # ... snipped ...
+
+        if seats_left == 0, do:
+          raise "No remaining seats"
+
+        {sk, ek} = :erlfdb_subspace.range(attends, {s})
+        if length(:erlfdb.get_range(tr, sk, ek)) == 5, do:
+          raise "Too many classes"
+
+        # ... snipped ...
+      end
+      
+    end)
+  end
+```
+
+Fortunately, we decided on a data model that keeps all of the attending records for a single student together. With this approach, we can use a single range read in the `attends` subspace to retrieve all the classes that a student is signed up for. We simply throw an exception if the number of classes has reached the limit of five.
+
+Feel free to add this new logic to the `Scheduling` module above.
+
+### Composing transactions
+
+Oh, just one last feature, we’re told. We have students that are trying to switch from one popular class to another. By the time they drop one class to free up a slot for themselves, the open slot in the other class is gone. By the time they see this and try to re-add their old class, that slot is gone too! So, can we make it so that a student can switch from one class to another without this worry?
+
+Fortunately, we have FoundationDB, and this sounds an awful lot like the transactional property of atomicity—the all-or-nothing behavior that we already rely on. All we need to do is to _compose_ the `drop` and `signup` functions into a new `switch` function. This makes the `switch` function exceptionally easy:
+
+<!-- livebook:{"force_markdown":true} -->
+
+```elixir
+def switch(db_or_tr, s, old_c, new_c) do
+  :erlfdb.transactional(db_or_tr, fn tr ->
+    drop(tr, s, old_c)
+    singup(tr, s, new_c)
+  end)
+end
+```
+
+The simplicity of this implementation belies the sophistication of what FoundationDB is taking care of for us.
+
+By dropping the old class and signing up for the new one inside a single transaction, we ensure that either both steps happen, or that neither happens. The first notable thing about the `switch` function is that it calls `:erlfdb.transactional/2` decorated, but it also calls the functions `signup` and `drop`, which each call `:erlfdb.transactional/2` themselves. Because these functions can accept either a database or an existing transaction as the `tr` argument, the `switch` function can be called with a database by a simple client, and a new transaction will be automatically created. However, once this transaction is created and passed in as `tr`, the calls to `drop` and `signup` both share the same `tr`. This ensures that they see each other’s modifications to the database, and all of the changes that both of them make in sequence are made transactionally when the `switch` function returns. This compositional capability is very powerful.
+
+Also note that, if an exception is raised, for example, in `signup`, the exception is not caught by `switch` and so will be thrown to the calling function. In this case, the transaction object is destroyed, automatically rolling back all database modifications, leaving the database completely unchanged by the half-executed function.
+
+### Are we done?
+
+Yep, we’re done and ready to deploy. If you want to see this entire application from the Python tutorial in one place plus some multithreaded testing code to simulate concurrency, look at the [Appendix: SchedulingTutorial.py](https://apple.github.io/foundationdb/class-scheduling.html#tutorial-appendix).
+
+### Deploying and scaling
+
+Since we store all state for this application in FoundationDB, deploying and scaling this solution up is impressively painless. Just run a web server, the UI, this back end, and point the whole thing at FoundationDB. We can run as many computers with this setup as we want, and they can all hit the database at the same time because of the transactional integrity of FoundationDB. Also, since all of the state in the system is stored in the database, any of these computers can fail without any lasting consequences.
+
+### Next steps
+
+* See [Data Modeling](https://apple.github.io/foundationdb/data-modeling.html) for guidance on using tuple and subspaces to enable effective storage and retrieval of data.
+* See [Developer Guide](https://apple.github.io/foundationdb/developer-guide.html) for general guidance on development using FoundationDB.
+* See the [API References](https://hexdocs.pm/erlfdb/erlfdb.html) for detailed API documentation.
+* See the [KV Queue Livebook](https://hexdocs.pm/erlfdb/kv_queue.html) for a sample implemenation of a queue data structure built using `:erlfdb`
+
+### Reminder
+
+This tutorial is a copy of [FDB | Class Scheduling](https://apple.github.io/foundationdb/class-scheduling.html), hosted on the official FoundationDB website.
