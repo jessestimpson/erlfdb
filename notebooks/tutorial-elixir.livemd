@@ -42,7 +42,7 @@ If you wish to connect to a real database, you must use `:erlfdb.open/0` to conn
 <!-- livebook:{"force_markdown":true} -->
 
 ```elixir
-# Connect to the default cluster file 
+# Connect to the default cluster file
 db = :erlfdb.open()
 
 # Connect to a database specified in the file
@@ -95,7 +95,7 @@ First, we need to design a [data model](https://apple.github.io/foundationdb/dat
 <!-- livebook:{"force_markdown":true} -->
 
 ```elixir
-# ('attends', student, class) = ''
+{"attends", student, class} = ""
 ```
 
 We’ll just store the key with a blank value to indicate that a student is signed up for a particular class. For this application, we’re going to think about a key-value pair’s key as a [tuple](https://apple.github.io/foundationdb/data-modeling.html#data-modeling-tuples). Encoding a tuple of data elements into a key is a very common pattern for an ordered key-value store.
@@ -105,7 +105,7 @@ We’ll keep data about classes like this:
 <!-- livebook:{"force_markdown":true} -->
 
 ```elixir
-# ('class', class_name) = seats_available
+{"class", class} = seats_available
 ```
 
 Similarly, each such key will represent an available class. We’ll use `seats_available` to record the number of seats available.
@@ -119,7 +119,7 @@ root = :erlfdb_directory.root()
 scheduling = :erlfdb_directory.create_or_open(db, root, ["scheduling"])
 ```
 
-The `create_or_open/3` function returns a map that includes a [subspace](https://apple.github.io/foundationdb/developer-guide.html#developer-guide-sub-keyspaces) where we’ll store our application data. Each subspace has a fixed prefix it uses when defining keys. The prefix corresponds to the first element of a tuple. We decided that we wanted 'attends' and 'class' as our prefixes, so we’ll create new subspaces for them within the scheduling subspace.:
+The `create_or_open/3` function returns a map that includes a [subspace](https://apple.github.io/foundationdb/developer-guide.html#developer-guide-sub-keyspaces) where we’ll store our application data. Each subspace has a fixed prefix it uses when defining keys. The prefix corresponds to the first element of a tuple. We decided that we wanted `"attends"` and `"class"` as our prefixes, so we’ll create new subspaces for them within the scheduling subspace:
 
 ```elixir
 course =
@@ -133,7 +133,7 @@ attends =
   |> :erlfdb_subspace.create({"attends"})
 ```
 
-Subspaces have a `pack/2` function for defining keys. To store the records for our data model, we can use `:erlfdb_subspace.pack(attends, {s, c})` and `:erlfdb_subspace.pack(course, {c})`.
+Subspaces have a `pack/2` function for defining keys. To store the records for our data model, we can use `:erlfdb_subspace.pack(attends, {student, class})` and `:erlfdb_subspace.pack(course, {class})`.
 
 ### Transactions
 
@@ -143,9 +143,9 @@ We’re going to rely on the powerful guarantees of transactions to help keep al
 defmodule Scheduling1 do
   @total_seats_available 100
 
-  def add_class(db_or_tr, course, c) do
+  def add_class(db_or_tr, course, class) do
     :erlfdb.transactional(db_or_tr, fn tr ->
-      key = :erlfdb_subspace.pack(course, {c})
+      key = :erlfdb_subspace.pack(course, {class})
       value = :erlfdb_tuple.pack({@total_seats_available})
       :erlfdb.set(tr, key, value)
     end)
@@ -167,27 +167,27 @@ is equivalent to something like:
 
 ```elixir
 defmodule ManualAddClassTransaction do
-  
-  def commit(db, course, c) do
+
+  def commit(db, course, class) do
     tr = :erlfdb.create_transaction(db)
-    commit(tr, course, c)
+    commit(tr, course, class)
   end
-  
-  def commit(tr, course, c) do
+
+  def commit(tr, course, class) do
     try do
-      Scheduling.add_class(tr, course, c)
-      
+      Scheduling.add_class(tr, course, class)
+
       tr
       |> :erlfdb.commit()
       |> :erlfdb.wait()
     catch
       :error, {:erlfdb_error, code} ->
-        
+
         tr
         |> :erlfdb.on_error(code)
         |> :erlfdb.wait()
-        
-        commit(tr, course, c)
+
+        commit(tr, course, class)
     end
   end
 
@@ -241,12 +241,14 @@ We initialize the database with our class list:
 
 ```elixir
 defmodule Scheduling2 do
+  @total_seats_available 100
+
   def init(db_or_tr, scheduling, course, class_names) do
-    {s, e} = :erlfdb_directory.range(scheduling)
+    {range_start, range_end} = :erlfdb_directory.range(scheduling) |> dbg()
 
     :erlfdb.transactional(db_or_tr, fn tr ->
       # Clear the directory
-      :erlfdb.clear_range(tr, s, e)
+      :erlfdb.clear_range(tr, range_start, range_end)
 
       for class_name <- class_names,
           do: add_class(tr, course, class_name)
@@ -254,10 +256,10 @@ defmodule Scheduling2 do
   end
 
   # Same as Scheduling1
-  def add_class(db_or_tr, course, c) do
+  def add_class(db_or_tr, course, class) do
     :erlfdb.transactional(db_or_tr, fn tr ->
-      key = :erlfdb_subspace.pack(course, {c})
-      value = :erlfdb_tuple.pack({100})
+      key = :erlfdb_subspace.pack(course, {class})
+      value = :erlfdb_tuple.pack({@total_seats_available})
       :erlfdb.set(tr, key, value)
     end)
   end
@@ -268,6 +270,27 @@ end
 Scheduling2.init(db, scheduling, course, class_names)
 ```
 
+### How FoundationDB Actually Stores Your Data
+
+Internally, the data stored from the code above would look like:
+
+```
+\x15)\x01class\x00\x019:00 music seminar\x00
+\xfe\x01\xfe\x00\x14\x02scheduling\x00
+```
+
+When we created our directory with `:erlfdb_directory.create_or_open(db, root, ["scheduling"])`, FoundationDB assigned the compact two-byte identifier `\x15)` (or `<<21, 41>>` in Elixir binary syntax) to represent the scheduling directory in all subsequent entries. You can see exactly what prefix your directory received from the `dbg()` output in our init function - it might show something like `{<<21, 41, 0>>, <<21, 41, 255>>}`. This `<<21, 41>>` (which is `\x15)` in hex notation) is the prefix allocated for your scheduling directory.
+
+This compaction makes a significant difference at scale. Storing the word "scheduling" in a million entries would waste 10 million bytes just on that prefix alone.
+
+The next segment, `\x01class\x00\x01`, identifies the "class" subspace. The `\x00` and `\x01` bytes were specifically chosen to ensure our keys sort correctly and can't accidentally overlap with each other. Having all class data share the same prefix also keeps it physically grouped together on disk, which is why the range reads in `available_classes()` are so efficient.
+
+The second key (starting with `\xfe)` is FoundationDB's internal metadata that maps the compact prefix `\x15)` (or `<<21, 41>>`) back to the human-readable name "scheduling".
+
+This is how FoundationDB translates between what we write in our code and what it stores on disk.
+
+<!-- livebook:{"break_markdown":true} -->
+
 ### Listing available classes
 
 Before students can do anything else, they need to be able to retrieve a list of available classes from the database. Because FoundationDB sorts its data by key and therefore has efficient range-read capability, we can retrieve all of the classes in a single database call. We find this range of keys with `:erlfdb_subspace.range(course)`:
@@ -276,14 +299,14 @@ Before students can do anything else, they need to be able to retrieve a list of
 defmodule Scheduling3 do
   # ** New **
   def available_classes(db_or_tr, course) do
-    {s, e} = :erlfdb_subspace.range(course)
+    {range_start, range_end} = :erlfdb_subspace.range(course)
 
     :erlfdb.transactional(db_or_tr, fn tr ->
       tr
-      |> :erlfdb.get_range(s, e)
-      |> Stream.map(fn {k, _v} ->
-        {c} = :erlfdb_subspace.unpack(course, k)
-        c
+      |> :erlfdb.get_range(range_start, range_end)
+      |> Stream.map(fn {encoded_class, _v} ->
+        {class} = :erlfdb_subspace.unpack(course, encoded_class)
+        class
       end)
       |> Enum.to_list()
     end)
@@ -303,36 +326,44 @@ end
 Scheduling3.available_classes(db, course)
 ```
 
-The `:erlfdb_subspace.range/1` function returns a 2-tuple containing binaries that represent the start and end (exclusive) of the subspace key range. We retrieve all key-value pairs and unpack the key to extract the class name. The technique used here will hold all key-value pairs in system memory. `:erlfdb.fold_range/5` can be used for a memory-safe reduce operation.
+The `:erlfdb_subspace.range/1` function returns a 2-tuple containing binaries that represent the start and end (exclusive) of the subspace key range:
+
+<!-- livebook:{"force_markdown":true} -->
+
+```elixir
+:erlfdb_subspace.range(course) #=> {<<21, 41, 1, 99, 108, 97, 115, 115, 0, 0>>, <<21, 41, 1, 99, 108, 97, 115, 115, 0, 255>>}
+```
+
+We retrieve all key-value pairs and unpack the key to extract the class name. The technique used here will hold all key-value pairs in system memory. `:erlfdb.fold_range/5` can be used for a memory-safe reduce operation.
 
 > Note: `:erlfdb.get_range/4` with the option `wait: false` can be used to control at what point in your transaction the wait occurs. The default is `wait: true`.
-> 
+>
 > ```elixir
 > f = :erlfdb.get_range(tr, s, e, wait: false)
 > # ... other code ...
 > kvs = :erlfdb.wait(f)
 > ```
-> 
+>
 > Deciding when to wait is an important part of designing your FDB transactions and keeping good performance characteristics. `:erlfdb` provides other wait-related functions that are worth exploring.
 
 ### Signing up for a class and Dropping a class
 
-We finally get to the crucial function. A student has decided on a class (by name) and wants to sign up. The `signup` function will take a student (`s`) and a class (`c`):
+We finally get to the crucial function. A student has decided on a class (by name) and wants to sign up. The `signup` function will take a `student`  and a `class`:
 
 ```elixir
 defmodule Scheduling4 do
   # ** New **
-  def signup(db_or_tr, attends, s, c) do
+  def signup(db_or_tr, attends, student, class) do
     :erlfdb.transactional(db_or_tr, fn tr ->
-      rec = :erlfdb_subspace.pack(attends, {s, c})
+      rec = :erlfdb_subspace.pack(attends, {student, class})
       :erlfdb.set(tr, rec, "")
     end)
   end
 
   # ** New **
-  def drop(db_or_tr, attends, s, c) do
+  def drop(db_or_tr, attends, student, class) do
     :erlfdb.transactional(db_or_tr, fn tr ->
-      rec = :erlfdb_subspace.pack(attends, {s, c})
+      rec = :erlfdb_subspace.pack(attends, {student, class})
       :erlfdb.clear(tr, rec)
     end)
   end
@@ -371,15 +402,16 @@ Let’s go back to the data model. Remember that we stored the number of seats i
 ```elixir
 defmodule Scheduling do
   @total_seats_available 100
-  def signup(db_or_tr, attends, course, s, c) do
+
+  def signup(db_or_tr, attends, course, student, class) do
     :erlfdb.transactional(db_or_tr, fn tr ->
-      rec = :erlfdb_subspace.pack(attends, {s, c})
+      rec = :erlfdb_subspace.pack(attends, {student, class})
 
       # ** New **
       with :not_found <- :erlfdb.wait(:erlfdb.get(tr, rec)) do
         {seats_left} =
           tr
-          |> :erlfdb.get(:erlfdb_subspace.pack(course, {c}))
+          |> :erlfdb.get(:erlfdb_subspace.pack(course, {class}))
           |> :erlfdb.wait()
           |> :erlfdb_tuple.unpack()
 
@@ -387,7 +419,7 @@ defmodule Scheduling do
 
         :erlfdb.set(
           tr,
-          :erlfdb_subspace.pack(course, {c}),
+          :erlfdb_subspace.pack(course, {class}),
           :erlfdb_tuple.pack({seats_left - 1})
         )
 
@@ -400,9 +432,9 @@ defmodule Scheduling do
     end)
   end
 
-  def drop(db_or_tr, attends, course, s, c) do
+  def drop(db_or_tr, attends, course, student, class) do
     :erlfdb.transactional(db_or_tr, fn tr ->
-      rec = :erlfdb_subspace.pack(attends, {s, c})
+      rec = :erlfdb_subspace.pack(attends, {student, class})
 
       # ** New **
       with :not_found <- :erlfdb.wait(:erlfdb.get(tr, rec)) do
@@ -410,11 +442,11 @@ defmodule Scheduling do
         :ok
       else
         _ ->
-          {seats_left} = :erlfdb_tuple.unpack(:erlfdb_subspace.pack(course, {c}))
+          {seats_left} = :erlfdb_tuple.unpack(:erlfdb_subspace.pack(course, {class}))
 
           :erlfdb.set(
             tr,
-            :erlfdb_subspace.pack(course, {c}),
+            :erlfdb_subspace.pack(course, {class}),
             :erlfdb_tuple.pack({seats_left + 1})
           )
 
@@ -424,38 +456,38 @@ defmodule Scheduling do
   end
 
   def available_classes(db_or_tr, course) do
-    {s, e} = :erlfdb_subspace.range(course)
+    {range_start, range_end} = :erlfdb_subspace.range(course)
 
     :erlfdb.transactional(db_or_tr, fn tr ->
       # ** New **
       tr
-      |> :erlfdb.get_range(s, e)
-      |> Stream.map(fn {k, v} ->
-        {c} = :erlfdb_subspace.unpack(course, k)
-        {av} = :erlfdb_tuple.unpack(v)
-        {c, av}
+      |> :erlfdb.get_range(range_start, range_end)
+      |> Stream.map(fn {packed_class, packed_seats} ->
+        {class} = :erlfdb_subspace.unpack(course, packed_class)
+        {availability} = :erlfdb_tuple.unpack(packed_seats)
+        {class, availability}
       end)
-      |> Stream.filter(fn {_c, av} -> av > 0 end)
-      |> Stream.map(fn {c, _av} -> c end)
+      |> Stream.filter(fn {_class, availability} -> availability > 0 end)
+      |> Stream.map(fn {class, _availability} -> class end)
       |> Enum.to_list()
     end)
   end
 
   def init(db_or_tr, scheduling, course, class_names) do
-    {s, e} = :erlfdb_directory.range(scheduling)
+     {range_start, range_end} = :erlfdb_directory.range(scheduling)
 
     :erlfdb.transactional(db_or_tr, fn tr ->
       # Clear the directory
-      :erlfdb.clear_range(tr, s, e)
+      :erlfdb.clear_range(tr, range_start, range_end)
 
       for class_name <- class_names,
           do: add_class(tr, course, class_name)
     end)
   end
 
-  def add_class(db_or_tr, course, c) do
+  def add_class(db_or_tr, course, class) do
     :erlfdb.transactional(db_or_tr, fn tr ->
-      key = :erlfdb_subspace.pack(course, {c})
+      key = :erlfdb_subspace.pack(course, {class})
       value = :erlfdb_tuple.pack({@total_seats_available})
       :erlfdb.set(tr, key, value)
     end)
@@ -544,19 +576,19 @@ Of course, as soon as our new version of the system goes live, we hear of a tric
 <!-- livebook:{"force_markdown":true} -->
 
 ```elixir
-    def signup(db_or_tr, attends, course, s, c) do
+    def signup(db_or_tr, attends, course, student, class) do
         # ... snipped ...
 
         if seats_left == 0, do:
           raise "No remaining seats"
 
-        {sk, ek} = :erlfdb_subspace.range(attends, {s})
+        {sk, ek} = :erlfdb_subspace.range(attends, {student})
         if length(:erlfdb.get_range(tr, sk, ek)) == 5, do:
           raise "Too many classes"
 
         # ... snipped ...
       end
-      
+
     end)
   end
 ```
@@ -574,10 +606,10 @@ Fortunately, we have FoundationDB, and this sounds an awful lot like the transac
 <!-- livebook:{"force_markdown":true} -->
 
 ```elixir
-def switch(db_or_tr, s, old_c, new_c) do
+def switch(db_or_tr, student, old_class, new_class) do
   :erlfdb.transactional(db_or_tr, fn tr ->
-    drop(tr, s, old_c)
-    singup(tr, s, new_c)
+    drop(tr, student, old_class)
+    singup(tr, student, new_class)
   end)
 end
 ```
