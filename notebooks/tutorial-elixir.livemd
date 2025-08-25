@@ -271,7 +271,7 @@ Scheduling2.init(db, scheduling, course, class_names)
 ```
 
 ### How FoundationDB Actually Stores Your Data
-
+You may be wondering what these keys and values actually look like. Let's take a brief moment to inspect the encodings of the keys. To use `:erlfdb` you are not required to know these encodings, so feel free to come back to this section later on if you'd like.
 Internally, the data stored from the code above would look like:
 
 ```
