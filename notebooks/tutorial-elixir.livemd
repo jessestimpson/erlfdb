@@ -281,7 +281,7 @@ Internally, the data stored from the code above would look like:
 
 When we created our directory with `:erlfdb_directory.create_or_open(db, root, ["scheduling"])`, FoundationDB assigned the compact two-byte identifier `\x15)` (or `<<21, 41>>` in Elixir binary syntax) to represent the scheduling directory in all subsequent entries. You can see exactly what prefix your directory received from the `dbg()` output in our init function - it might show something like `{<<21, 41, 0>>, <<21, 41, 255>>}`. This `<<21, 41>>` (which is `\x15)` in hex notation) is the prefix allocated for your scheduling directory.
 
-This compaction makes a significant difference at scale. Storing the word "scheduling" in a million entries would waste 10 million bytes just on that prefix alone.
+This compaction makes a significant difference at scale. Storing the word "scheduling" in a million entries would use 10 million bytes just on that prefix alone, compared with 2 million bytes with a 2-byte prefix.
 
 The next segment, `\x01class\x00\x01`, identifies the "class" subspace. The `\x00` and `\x01` bytes are chosen by the FDB Subspace Layer to ensure our keys sort correctly and can't accidentally overlap with each other. Having all class data share the same prefix also keeps it physically grouped together on disk, which is why the range reads in `available_classes()` are so efficient.
 
