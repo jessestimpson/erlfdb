@@ -283,7 +283,7 @@ When we created our directory with `:erlfdb_directory.create_or_open(db, root, [
 
 This compaction makes a significant difference at scale. Storing the word "scheduling" in a million entries would waste 10 million bytes just on that prefix alone.
 
-The next segment, `\x01class\x00\x01`, identifies the "class" subspace. The `\x00` and `\x01` bytes were specifically chosen to ensure our keys sort correctly and can't accidentally overlap with each other. Having all class data share the same prefix also keeps it physically grouped together on disk, which is why the range reads in `available_classes()` are so efficient.
+The next segment, `\x01class\x00\x01`, identifies the "class" subspace. The `\x00` and `\x01` bytes are chosen by the FDB Subspace Layer to ensure our keys sort correctly and can't accidentally overlap with each other. Having all class data share the same prefix also keeps it physically grouped together on disk, which is why the range reads in `available_classes()` are so efficient.
 
 The second key (starting with `\xfe)` is FoundationDB's internal metadata that maps the compact prefix `\x15)` (or `<<21, 41>>`) back to the human-readable name "scheduling".
 
