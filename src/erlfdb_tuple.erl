@@ -252,7 +252,7 @@ unpack(Binary, Prefix) ->
     PrefixLen = size(Prefix),
     case Binary of
         <<Prefix:PrefixLen/binary, Rest/binary>> ->
-            case decode(Rest, 0) of
+            case decode(Rest, 0, []) of
                 {Elems, <<>>} ->
                     list_to_tuple(Elems);
                 {_, Tail} ->
@@ -428,96 +428,81 @@ enc_float(Float) ->
     end.
 
 %% erlfmt-ignore
-decode(<<>>, 0) ->
-    {[], <<>>};
+decode(<<>>, _Depth, Acc) ->
+    {lists:reverse(Acc), <<>>};
 
-decode(<<?NULL, Rest/binary>>, 0) ->
-    {Values, Tail} = decode(Rest, 0),
-    {[null | Values], Tail};
+decode(<<?NULL, Rest/binary>>, 0, Acc) ->
+    decode(Rest, 0, [null|Acc]);
 
-decode(<<?NULL, ?ESCAPE, Rest/binary>>, Depth) when Depth > 0 ->
-    {Values, Tail} = decode(Rest, Depth),
-    {[null | Values], Tail};
+decode(<<?NULL, ?ESCAPE, Rest/binary>>, Depth, Acc) when Depth > 0 ->
+    decode(Rest, Depth, [null|Acc]);
 
-decode(<<?NULL, Rest/binary>>, Depth) when Depth > 0 ->
-    {[], Rest};
+decode(<<?NULL, Rest/binary>>, Depth, Acc) when Depth > 0 ->
+    decode(Rest, Depth, Acc);
 
-decode(<<?BYTES, Rest/binary>>, Depth) ->
+decode(<<?BYTES, Rest/binary>>, Depth, Acc) ->
     {Bin, NewRest} = dec_null_terminated(Rest),
-    {Values, Tail} = decode(NewRest, Depth),
-    {[Bin | Values], Tail};
+    decode(NewRest, Depth, [Bin|Acc]);
 
-decode(<<?STRING, Rest/binary>>, Depth) ->
+decode(<<?STRING, Rest/binary>>, Depth, Acc) ->
     {Bin, NewRest} = dec_null_terminated(Rest),
-    {Values, Tail} = decode(NewRest, Depth),
-    {[{utf8, Bin} | Values], Tail};
+    decode(NewRest, Depth, [{utf8, Bin}|Acc]);
 
-decode(<<?NESTED, Rest/binary>>, Depth) ->
-    {NestedValues, Tail1} = decode(Rest, Depth + 1),
-    {RestValues, Tail2} = decode(Tail1, Depth),
-    NestedTuple = list_to_tuple(NestedValues),
-    {[NestedTuple | RestValues], Tail2};
+decode(<<?NESTED, Rest/binary>>, Depth, Acc) ->
+    {NestedValues, Tail1} = decode(Rest, Depth + 1, []),
+    decode(Tail1, Depth, [list_to_tuple(NestedValues)|Acc]);
 
-decode(<<?NEG_INT_9P, InvertedSize:8, Rest/binary>>, Depth) ->
+decode(<<?NEG_INT_9P, InvertedSize:8, Rest/binary>>, Depth, Acc) ->
     Size = InvertedSize bxor 16#FF,
-    dec_neg_int(Rest, Size, Depth);
+    dec_neg_int(Rest, Size, Depth, Acc);
 
-decode(<<?NEG_INT_8, Rest/binary>>, Depth) -> dec_neg_int(Rest, 8, Depth);
-decode(<<?NEG_INT_7, Rest/binary>>, Depth) -> dec_neg_int(Rest, 7, Depth);
-decode(<<?NEG_INT_6, Rest/binary>>, Depth) -> dec_neg_int(Rest, 6, Depth);
-decode(<<?NEG_INT_5, Rest/binary>>, Depth) -> dec_neg_int(Rest, 5, Depth);
-decode(<<?NEG_INT_4, Rest/binary>>, Depth) -> dec_neg_int(Rest, 4, Depth);
-decode(<<?NEG_INT_3, Rest/binary>>, Depth) -> dec_neg_int(Rest, 3, Depth);
-decode(<<?NEG_INT_2, Rest/binary>>, Depth) -> dec_neg_int(Rest, 2, Depth);
-decode(<<?NEG_INT_1, Rest/binary>>, Depth) -> dec_neg_int(Rest, 1, Depth);
+decode(<<?NEG_INT_8, Rest/binary>>, Depth, Acc) -> dec_neg_int(Rest, 8, Depth, Acc);
+decode(<<?NEG_INT_7, Rest/binary>>, Depth, Acc) -> dec_neg_int(Rest, 7, Depth, Acc);
+decode(<<?NEG_INT_6, Rest/binary>>, Depth, Acc) -> dec_neg_int(Rest, 6, Depth, Acc);
+decode(<<?NEG_INT_5, Rest/binary>>, Depth, Acc) -> dec_neg_int(Rest, 5, Depth, Acc);
+decode(<<?NEG_INT_4, Rest/binary>>, Depth, Acc) -> dec_neg_int(Rest, 4, Depth, Acc);
+decode(<<?NEG_INT_3, Rest/binary>>, Depth, Acc) -> dec_neg_int(Rest, 3, Depth, Acc);
+decode(<<?NEG_INT_2, Rest/binary>>, Depth, Acc) -> dec_neg_int(Rest, 2, Depth, Acc);
+decode(<<?NEG_INT_1, Rest/binary>>, Depth, Acc) -> dec_neg_int(Rest, 1, Depth, Acc);
 
-decode(<<?ZERO, Rest/binary>>, Depth) ->
-    {Values, Tail} = decode(Rest, Depth),
-    {[0 | Values], Tail};
+decode(<<?ZERO, Rest/binary>>, Depth, Acc) ->
+    decode(Rest, Depth, [0|Acc]);
 
-decode(<<?POS_INT_1, Rest/binary>>, Depth) -> dec_pos_int(Rest, 1, Depth);
-decode(<<?POS_INT_2, Rest/binary>>, Depth) -> dec_pos_int(Rest, 2, Depth);
-decode(<<?POS_INT_3, Rest/binary>>, Depth) -> dec_pos_int(Rest, 3, Depth);
-decode(<<?POS_INT_4, Rest/binary>>, Depth) -> dec_pos_int(Rest, 4, Depth);
-decode(<<?POS_INT_5, Rest/binary>>, Depth) -> dec_pos_int(Rest, 5, Depth);
-decode(<<?POS_INT_6, Rest/binary>>, Depth) -> dec_pos_int(Rest, 6, Depth);
-decode(<<?POS_INT_7, Rest/binary>>, Depth) -> dec_pos_int(Rest, 7, Depth);
-decode(<<?POS_INT_8, Rest/binary>>, Depth) -> dec_pos_int(Rest, 8, Depth);
+decode(<<?POS_INT_1, Rest/binary>>, Depth, Acc) -> dec_pos_int(Rest, 1, Depth, Acc);
+decode(<<?POS_INT_2, Rest/binary>>, Depth, Acc) -> dec_pos_int(Rest, 2, Depth, Acc);
+decode(<<?POS_INT_3, Rest/binary>>, Depth, Acc) -> dec_pos_int(Rest, 3, Depth, Acc);
+decode(<<?POS_INT_4, Rest/binary>>, Depth, Acc) -> dec_pos_int(Rest, 4, Depth, Acc);
+decode(<<?POS_INT_5, Rest/binary>>, Depth, Acc) -> dec_pos_int(Rest, 5, Depth, Acc);
+decode(<<?POS_INT_6, Rest/binary>>, Depth, Acc) -> dec_pos_int(Rest, 6, Depth, Acc);
+decode(<<?POS_INT_7, Rest/binary>>, Depth, Acc) -> dec_pos_int(Rest, 7, Depth, Acc);
+decode(<<?POS_INT_8, Rest/binary>>, Depth, Acc) -> dec_pos_int(Rest, 8, Depth, Acc);
 
-decode(<<?POS_INT_9P, Size:8/unsigned-integer, Rest/binary>>, Depth) ->
-    dec_pos_int(Rest, Size, Depth);
+decode(<<?POS_INT_9P, Size:8/unsigned-integer, Rest/binary>>, Depth, Acc) ->
+    dec_pos_int(Rest, Size, Depth, Acc);
 
-decode(<<?FLOAT, Raw:4/binary, Rest/binary>>, Depth) ->
-    {Values, Tail} = decode(Rest, Depth),
-    {[dec_float(Raw) | Values], Tail};
+decode(<<?FLOAT, Raw:4/binary, Rest/binary>>, Depth, Acc) ->
+    decode(Rest, Depth, [dec_float(Raw)|Acc]);
 
-decode(<<?DOUBLE, Raw:8/binary, Rest/binary>>, Depth) ->
-    {Values, Tail} = decode(Rest, Depth),
-    {[dec_float(Raw) | Values], Tail};
+decode(<<?DOUBLE, Raw:8/binary, Rest/binary>>, Depth, Acc) ->
+    decode(Rest, Depth, [dec_float(Raw)|Acc]);
 
-decode(<<?FALSE, Rest/binary>>, Depth) ->
-    {Values, Tail} = decode(Rest, Depth),
-    {[false | Values], Tail};
+decode(<<?FALSE, Rest/binary>>, Depth, Acc) ->
+    decode(Rest, Depth, [false|Acc]);
 
-decode(<<?TRUE, Rest/binary>>, Depth) ->
-    {Values, Tail} = decode(Rest, Depth),
-    {[true | Values], Tail};
+decode(<<?TRUE, Rest/binary>>, Depth, Acc) ->
+    decode(Rest, Depth, [true|Acc]);
 
-decode(<<?UUID, UUID:16/binary, Rest/binary>>, Depth) ->
-    {Values, Tail} = decode(Rest, Depth),
-    {[{uuid, UUID} | Values], Tail};
+decode(<<?UUID, UUID:16/binary, Rest/binary>>, Depth, Acc) ->
+    decode(Rest, Depth, [{uuid, UUID}|Acc]);
 
-decode(<<?ID64, Id:64/big, Rest/binary>>, Depth) ->
-    {Values, Tail} = decode(Rest, Depth),
-    {[{id64, Id} | Values], Tail};
+decode(<<?ID64, Id:64/big, Rest/binary>>, Depth, Acc) ->
+    decode(Rest, Depth, [{id64, Id}|Acc]);
 
-decode(<<?VS80, Id:64/big, Batch:16/big, Rest/binary>>, Depth) ->
-    {Values, Tail} = decode(Rest, Depth),
-    {[{versionstamp, Id, Batch} | Values], Tail};
+decode(<<?VS80, Id:64/big, Batch:16/big, Rest/binary>>, Depth, Acc) ->
+    decode(Rest, Depth, [{versionstamp, Id, Batch}|Acc]);
 
-decode(<<?VS96, Id:64/big, Batch:16/big, Tx:16/big, Rest/binary>>, Depth) ->
-    {Values, Tail} = decode(Rest, Depth),
-    {[{versionstamp, Id, Batch, Tx} | Values], Tail}.
+decode(<<?VS96, Id:64/big, Batch:16/big, Tx:16/big, Rest/binary>>, Depth, Acc) ->
+    decode(Rest, Depth, [{versionstamp, Id, Batch, Tx}|Acc]).
 
 dec_null_terminated(Bin) ->
     dec_null_terminated(Bin, 0, []).
@@ -541,21 +526,19 @@ dec_null_terminated(Bin, Start, Parts) ->
             {R, <<>>}
     end.
 
-dec_neg_int(Bin, Size, Depth) ->
+dec_neg_int(Bin, Size, Depth, Acc) ->
     case Bin of
         <<Raw:Size/integer-unit:8, Rest/binary>> ->
             Val = Raw - (1 bsl (Size * 8)) + 1,
-            {Values, Tail} = decode(Rest, Depth),
-            {[Val | Values], Tail};
+            decode(Rest, Depth, [Val|Acc]);
         _ ->
             erlang:error({invalid_negative_int, Size, Bin})
     end.
 
-dec_pos_int(Bin, Size, Depth) ->
+dec_pos_int(Bin, Size, Depth, Acc) ->
     case Bin of
         <<Val:Size/integer-unit:8, Rest/binary>> ->
-            {Values, Tail} = decode(Rest, Depth),
-            {[Val | Values], Tail};
+            decode(Rest, Depth, [Val|Acc]);
         _ ->
             erlang:error({invalid_positive_int, Size, Bin})
     end.
