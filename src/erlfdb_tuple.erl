@@ -101,6 +101,10 @@
 -define(UNSET_VERSIONSTAMP80, <<16#FFFFFFFFFFFFFFFFFFFF:80>>).
 -define(UNSET_VERSIONSTAMP96, <<16#FFFFFFFFFFFFFFFFFFFF:80, _:16>>).
 
+-define(BinPartsIoJoin(Join, Bin, Parts),
+    lists:join(Join, [binary:part(Bin, S, L) || {S, L} <- Parts])
+).
+
 -if(?DOCATTRS).
 -doc """
 Encodes the tuple into a binary.
@@ -402,16 +406,16 @@ encode(BadTerm, _) ->
     erlang:error({invalid_tuple_term, BadTerm}).
 
 enc_null_terminated(Bin) ->
-    enc_null_terminated(Bin, 0).
+    enc_null_terminated(Bin, 0, []).
 
-enc_null_terminated(Bin, Offset) ->
-    case Bin of
-        <<Head:Offset/binary>> ->
-            [Head, <<?NULL>>];
-        <<Head:Offset/binary, ?NULL, Tail/binary>> ->
-            [Head, <<?NULL, ?ESCAPE>> | enc_null_terminated(Tail, 0)];
-        <<_Head:Offset/binary, _, _Tail/binary>> = Bin ->
-            enc_null_terminated(Bin, Offset + 1)
+enc_null_terminated(Bin, Start, Parts) ->
+    case binary:match(Bin, <<?NULL>>, [{scope, {Start, byte_size(Bin) - Start}}]) of
+        nomatch ->
+            Parts2 = [{Start, byte_size(Bin) - Start} | Parts],
+            [?BinPartsIoJoin(<<?NULL, ?ESCAPE>>, Bin, lists:reverse(Parts2)), <<?NULL>>];
+        {NStart, _Length} ->
+            Parts2 = [{Start, NStart - Start} | Parts],
+            enc_null_terminated(Bin, NStart + 1, Parts2)
     end.
 
 enc_float(Float) ->
@@ -516,20 +520,25 @@ decode(<<?VS96, Id:64/big, Batch:16/big, Tx:16/big, Rest/binary>>, Depth) ->
     {[{versionstamp, Id, Batch, Tx} | Values], Tail}.
 
 dec_null_terminated(Bin) ->
-    {Parts, Tail} = dec_null_terminated(Bin, 0),
-    {iolist_to_binary(Parts), Tail}.
+    dec_null_terminated(Bin, 0, []).
 
-dec_null_terminated(Bin, Offset) ->
-    case Bin of
-        <<Head:Offset/binary, ?NULL, ?ESCAPE, Tail/binary>> ->
-            {Parts, RestTail} = dec_null_terminated(Tail, 0),
-            {[Head, <<?NULL>> | Parts], RestTail};
-        <<Head:Offset/binary, ?NULL, Tail/binary>> ->
-            {[Head], Tail};
-        <<_:Offset/binary, _, _/binary>> ->
-            dec_null_terminated(Bin, Offset + 1);
-        <<_Head:Offset/binary>> ->
-            erlang:error({invalid_null_termination, Bin})
+dec_null_terminated(Bin, Start, Parts) ->
+    case binary:match(Bin, <<?NULL>>, [{scope, {Start, byte_size(Bin) - Start}}]) of
+        nomatch ->
+            erlang:error({invalid_null_termination, Bin});
+        {NStart, _Length} when NStart + 1 < byte_size(Bin) ->
+            Parts2 = [{Start, NStart - Start} | Parts],
+            case binary:at(Bin, NStart + 1) of
+                ?ESCAPE ->
+                    dec_null_terminated(Bin, NStart + 2, Parts2);
+                _ ->
+                    R = iolist_to_binary(?BinPartsIoJoin(<<?NULL>>, Bin, lists:reverse(Parts2))),
+                    {R, binary:part(Bin, NStart + 1, byte_size(Bin) - NStart - 1)}
+            end;
+        {NStart, _Length} ->
+            Parts2 = [{Start, NStart - Start} | Parts],
+            R = iolist_to_binary(?BinPartsIoJoin(<<?NULL>>, Bin, lists:reverse(Parts2))),
+            {R, <<>>}
     end.
 
 dec_neg_int(Bin, Size, Depth) ->
