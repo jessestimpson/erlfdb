@@ -18,6 +18,8 @@ export ERLFDB_INCLUDE_DIR=/opt/foundationdb/include
 
 When set, the build uses this value directly as the compile-time FDB API version, bypassing `fdbcli` checks. This is useful in environments where `fdbcli` is not installed on the build host but the FoundationDB client library and headers are available (e.g. multi-version support, cross-compilation or CI). erlfdb will compile only with features that are supported in this version, and will throw a `badarg` error when calling code executes an erlfdb function that is not supported. For example, calling `erlfdb:get_mapped_range/4` when compiled with version 710.
 
+When unset, the build attempts to find the `fdbcli` binary to determine the compile-time API version (see below).
+
 ```shell
 export ERLFDB_COMPILE_API_VERSION=730
 ```
@@ -41,7 +43,7 @@ export ERLFDB_ASSERT_API_VERSION=0
 
 ## Runtime Configuration
 
-Runtime configuration is set via the `erlfdb` application environment, typically in a `sys.config` file or equivalent.
+Runtime configuration is set via the `erlfdb` application environment, typically in a `sys.config` file or equivalent. Unless specified otherwise, all runtime configuration is evaluated when the NIF is loaded, and made permanent for the lifetime of the VM process.
 
 ### `api_version`
 

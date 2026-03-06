@@ -196,7 +196,7 @@ LogAssetsMap = fun
         )
 end.
 
-% If CompileAPIVersion undetected, print helpful informatiom about where to download the latest FDB Release
+% If CompileAPIVersion undetected, print helpful information about where to download the latest FDB Release
 case CompileAPIVersion of
     undefined ->
         Log(info, "Checking for latest FoundationDB release...", []),

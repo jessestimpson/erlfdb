@@ -81,6 +81,7 @@ The NIF wrapper around all FoundationDB C API function calls.
     error_predicate/2
 ]).
 
+% This is defined at compile time using `erl_opts` in `rebar.config.script`
 -define(DEFAULT_API_VERSION, ?erlfdb_compile_time_api_version).
 
 -export_type([
