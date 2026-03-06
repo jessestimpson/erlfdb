@@ -1194,7 +1194,7 @@ get_range_startswith(DbOrTx, Prefix, Options) ->
 
 -if(?DOCATTRS).
 -doc """
-Equivalent to `get_mapped_range(Tx, StartKey, EndKey, []).`
+Equivalent to `get_mapped_range(Tx, StartKey, EndKey, Mapper, []).`
 
 This function never returns a `t:fold_future/0`. Use `[{wait, false}]` with `get_mapped_range/5` if you
 want future semantics.

@@ -39,7 +39,7 @@ jobs:
           otp-version: ${{matrix.otp}}
           rebar3-version: "3.24.0"
       - name: Run rebar3 fmt check for Erlang files
-        run: ERLFDB_ASSERT_FDBCLI=0 rebar3 fmt --check
+        run: ERLFDB_ASSERT_API_VERSION=0 rebar3 fmt --check
         if: ${{ matrix.fmt }}
       - name: Run clang-format check for C files
         uses: jidicula/clang-format-action@v4.11.0

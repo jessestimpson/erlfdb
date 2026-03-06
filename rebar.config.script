@@ -1,20 +1,11 @@
 FDBReleasesBaseUrl = "https://api.github.com/repos/apple/foundationdb/releases".
-IncludeDir = "/usr/local/include".
+IncludeDir = case os:getenv("ERLFDB_INCLUDE_DIR") of
+    false -> "/usr/local/include";
+    Dir -> Dir
+end.
 
 % Detect rebar3 or mix
 RebarApi = {error, nofile} =/= code:ensure_loaded(rebar_api).
-
-% Look for fdbcli on PATH, but also check /usr/local/bin explicitly since that is the common location
-FdbCli =
-    case os:find_executable("fdbcli") of
-        false ->
-            case os:find_executable("fdbcli", "/usr/local/bin") of
-                false -> "fdbcli";
-                Exec -> Exec
-            end;
-        Exec ->
-            Exec
-    end.
 
 % Logs to stdout/stderr from either rebar3 or mix
 Log = fun(Level, Fmt, Args) ->
@@ -38,24 +29,48 @@ Log = fun(Level, Fmt, Args) ->
     end
 end.
 
+% Look for fdbcli on PATH, but also check /usr/local/bin explicitly since that is the common location.
+% Override with ERLFDB_FDBCLI env var to point at a specific version's fdbcli.
 % Check architecture against regex
 IsArch = fun(ArchRe) ->
     match =:= re:run(erlang:system_info(system_architecture), ArchRe, [{capture, none}])
 end.
 
-% Hacky means to extract API version from fdbcli protocol version output
-% See https://github.com/apple/foundationdb/blob/master/flow/ProtocolVersion.h
-MaxAPIVersion =
-    begin
-        VsnInfo = os:cmd(FdbCli ++ " --version"),
-        case re:run(VsnInfo, "protocol ([a-f0-9]*)", [{capture, [1], list}]) of
-            {match, [ProtocolStr]} ->
-                ProtocolVsn = list_to_integer(ProtocolStr, 16),
-                APIVersionBytes = (ProtocolVsn band 16#0000000FFF00000) bsr 20,
-                list_to_integer(integer_to_list(APIVersionBytes, 16));
-            nomatch ->
-                undefined
-        end
+CompileAPIVersion =
+    case os:getenv("ERLFDB_COMPILE_API_VERSION") of
+        false ->
+            % Look for fdbcli on PATH, but also check /usr/local/bin explicitly since that is the common location.
+            % Override with ERLFDB_FDBCLI env var to point at a specific version's fdbcli.
+            FdbCli =
+                case os:getenv("ERLFDB_FDBCLI") of
+                    false ->
+                        case os:find_executable("fdbcli") of
+                            false ->
+                                case os:find_executable("fdbcli", "/usr/local/bin") of
+                                    false -> "fdbcli";
+                                    Exec -> Exec
+                                end;
+                            Exec ->
+                                Exec
+                        end;
+                    Path ->
+                        Path
+                end,
+
+            % Hacky means to extract API version from fdbcli protocol version output
+            % See https://github.com/apple/foundationdb/blob/master/flow/ProtocolVersion.h
+            VsnInfo = os:cmd(FdbCli ++ " --version"),
+            case re:run(VsnInfo, "protocol ([a-f0-9]*)", [{capture, [1], list}]) of
+                {match, [ProtocolStr]} ->
+                    ProtocolVsn = list_to_integer(ProtocolStr, 16),
+                    APIVersionBytes = (ProtocolVsn band 16#0000000FFF00000) bsr 20,
+                    list_to_integer(integer_to_list(APIVersionBytes, 16));
+                nomatch ->
+                    undefined
+            end;
+        ApiVsnStr ->
+            Log(info, "Using ERLFDB_COMPILE_API_VERSION=~s", [ApiVsnStr]),
+            list_to_integer(ApiVsnStr)
     end.
 
 % Make an HTTP GET request, expect JSON body
@@ -181,8 +196,8 @@ LogAssetsMap = fun
         )
 end.
 
-% If MaxAPIVersion undetected, print helpful informatiom about where to download the latest FDB Release
-case MaxAPIVersion of
+% If CompileAPIVersion undetected, print helpful informatiom about where to download the latest FDB Release
+case CompileAPIVersion of
     undefined ->
         Log(info, "Checking for latest FoundationDB release...", []),
         {ok, _} = application:ensure_all_started(inets),
@@ -200,14 +215,15 @@ case MaxAPIVersion of
                     "The foundationdb-clients package is required to compile erlfdb. Please visit~n~n        https://github.com/apple/foundationdb/releases~n"
             end,
         [Log(info, Message, []) || Message =/= undefined],
-        AssertFdbCli = "0" =/= os:getenv("ERLFDB_ASSERT_FDBCLI"),
+        AssertApiVersion = "0" =/= os:getenv("ERLFDB_ASSERT_API_VERSION"),
         if
-            AssertFdbCli ->
-                Log(abort, "Error: fdbcli not found on PATH.", []);
+            AssertApiVersion ->
+                Log(abort, "Error: FDB API version could not be determined. Set ERLFDB_COMPILE_API_VERSION or install fdbcli.", []);
             true ->
-                Log(error, "fdbcli not found on PATH. Continuing anyway...", [])
+                Log(error, "FDB API version could not be determined. Continuing anyway...", [])
         end;
     _ ->
+        Log(info, "Compiling with FDB_API_VERSION=~p", [CompileAPIVersion]),
         ok
 end.
 
@@ -224,7 +240,7 @@ DynamicLibraryDir = filename:dirname(DynamicLibrary).
 
 [
     {erl_opts, ErlOpts ++ [
-        {d, erlfdb_api_version, MaxAPIVersion},
+        {d, erlfdb_compile_time_api_version, CompileAPIVersion},
         {d, erlfdb_compile_time_external_client_library, DynamicLibrary}
     ]},
     {port_env, [
@@ -233,8 +249,8 @@ DynamicLibraryDir = filename:dirname(DynamicLibrary).
             "CFLAGS",
             "$CFLAGS -I"++IncludeDir++" -Ic_src/ -g -Wall -Werror " ++
                 (if
-                    MaxAPIVersion < 730 ->
-                        "-DFDB_API_VERSION=" ++ integer_to_list(MaxAPIVersion);
+                    is_integer(CompileAPIVersion) ->
+                        "-DFDB_API_VERSION=" ++ integer_to_list(CompileAPIVersion);
                     true ->
                         "-DFDB_USE_LATEST_API_VERSION=1"
                 end)
@@ -242,12 +258,12 @@ DynamicLibraryDir = filename:dirname(DynamicLibrary).
         {
             "(linux|solaris|freebsd|netbsd|openbsd|dragonfly|gnu)",
             "LDFLAGS",
-            "$LDFLAGS -L"++DynamicLibraryDir++" -lfdb_c"
+            "$LDFLAGS -Wl,-rpath,\\$ORIGIN -Wl,-rpath,"++DynamicLibraryDir++" -L"++DynamicLibraryDir++" -lfdb_c"
         },
         {
             "(darwin)",
             "LDFLAGS",
-            "$LDFLAGS -rpath "++DynamicLibraryDir++" -L"++DynamicLibraryDir++" -lfdb_c"
+            "$LDFLAGS -rpath @loader_path -rpath "++DynamicLibraryDir++" -L"++DynamicLibraryDir++" -lfdb_c"
         }
     ]}
 ] ++ CONFIG1.

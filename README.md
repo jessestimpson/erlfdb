@@ -109,12 +109,12 @@ against the most recent supported version of FoundationDB.
 
 ### Bypassing dependency checks
 
-When you execute a rebar command, erlfdb attempts to detect the version of the fdbcli
-installed on your system. If it cannot be detected, the rebar command is aborted.
+When you execute a rebar command, erlfdb attempts to detect the FDB API version
+via `fdbcli`. If it cannot be determined, the rebar command is aborted.
 
-To disable the abort, use `ERLFDB_ASSERT_FDBCLI=0`. For example, you can safely use
+To disable the abort, use `ERLFDB_ASSERT_API_VERSION=0`. For example, you can safely use
 this for the `fmt` command, which does not do a compile action.
 
 ```bash
-ERLFDB_ASSERT_FDBCLI=0 rebar3 fmt
+ERLFDB_ASSERT_API_VERSION=0 rebar3 fmt
 ```
