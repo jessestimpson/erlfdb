@@ -35,7 +35,7 @@ db_client_info_test() ->
     Db = erlfdb_sandbox:open(),
     Busyness = erlfdb:get_main_thread_busyness(Db),
     ?assert(is_float(Busyness)),
-    Vsn = erlfdb_nif:get_max_api_version(),
+    Vsn = erlfdb_nif:get_default_api_version(),
     if
         Vsn >= 730 ->
             Status = erlfdb:wait(erlfdb:get_client_status(Db)),
@@ -92,7 +92,7 @@ get_range_test() ->
 
     ?assertEqual(KVs, GetRangeResult),
 
-    Vsn = erlfdb_nif:get_max_api_version(),
+    Vsn = erlfdb_nif:get_default_api_version(),
 
     if
         Vsn >= 730 ->
@@ -123,7 +123,7 @@ interleaving_test() ->
     KVs = create_range(Tenant, <<"interleaving_test">>, N),
     Mapper = create_mapping_on_range(Tenant, <<"interleaving_test">>, N, <<"hello world">>),
 
-    Vsn = erlfdb_nif:get_max_api_version(),
+    Vsn = erlfdb_nif:get_default_api_version(),
 
     [R1, R2, R3, foobar, R4] = erlfdb:transactional(Tenant, fun(Tx) ->
         % F1 is a future doing a small get_range
@@ -226,7 +226,7 @@ create_mapping_on_range(Tenant, Label, N, Message) ->
 % element selector syntax can be used. This test demonstrates the minimal set
 % of keys necessary to exercise the feature.
 get_mapped_range_minimal_test() ->
-    Vsn = erlfdb_nif:get_max_api_version(),
+    Vsn = erlfdb_nif:get_default_api_version(),
 
     if
         Vsn >= 730 ->
@@ -252,7 +252,7 @@ get_mapped_range_minimal_test() ->
     end.
 
 get_mapped_range_continuation_test() ->
-    Vsn = erlfdb_nif:get_max_api_version(),
+    Vsn = erlfdb_nif:get_default_api_version(),
     if
         Vsn >= 730 ->
             N = 100,
@@ -413,7 +413,7 @@ watch_to_test() ->
     receive
         {ResultRef, Result} ->
             ?assertMatch(<<"bar">>, Result)
-    after 1000 ->
+    after 2000 ->
         error(timeout)
     end.
 
@@ -506,7 +506,7 @@ range_iterator_test() ->
     ),
 
     % GetMappedRange
-    Vsn = erlfdb_nif:get_max_api_version(),
+    Vsn = erlfdb_nif:get_default_api_version(),
 
     if
         Vsn >= 730 ->

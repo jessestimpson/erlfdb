@@ -30,6 +30,7 @@ The NIF wrapper around all FoundationDB C API function calls.
 -export([
     ohai/0,
 
+    get_default_api_version/0,
     get_max_api_version/0,
 
     future_cancel/1,
@@ -80,11 +81,8 @@ The NIF wrapper around all FoundationDB C API function calls.
     error_predicate/2
 ]).
 
--ifdef(erlfdb_api_version).
--define(DEFAULT_API_VERSION, ?erlfdb_api_version).
--else.
--define(DEFAULT_API_VERSION, 730).
--endif.
+% This is defined at compile time using `erl_opts` in `rebar.config.script`
+-define(DEFAULT_API_VERSION, ?erlfdb_compile_time_api_version).
 
 -export_type([
     atomic_mode/0,
@@ -237,7 +235,10 @@ The NIF wrapper around all FoundationDB C API function calls.
 ohai() ->
     foo.
 
--spec get_max_api_version() -> {ok, integer()}.
+-spec get_default_api_version() -> integer().
+get_default_api_version() -> ?DEFAULT_API_VERSION.
+
+-spec get_max_api_version() -> integer().
 get_max_api_version() ->
     erlfdb_get_max_api_version().
 
@@ -594,6 +595,7 @@ init() ->
 
             NetOptionsDefaults = erlfdb_network_options:get_defaults(),
 
+            % Merge defaults
             Opts =
                 case application:get_env(erlfdb, network_options) of
                     {ok, O} when is_list(O) ->
@@ -602,6 +604,7 @@ init() ->
                         NetOptionsDefaults
                 end,
 
+            % Follow MFAs
             Opts2 = lists:map(
                 fun
                     ({Name, {M, F, A}}) when
@@ -615,20 +618,30 @@ init() ->
                 Opts
             ),
 
-            application:set_env(erlfdb, network_options_resolved, Opts2),
+            % Remove options with `false` value. They are always a no-op
+            Opts3 = lists:filter(
+                fun
+                    ({_Name, false}) -> false;
+                    (_) -> true
+                end,
+                Opts2
+            ),
 
+            application:set_env(erlfdb, network_options_resolved, Opts3),
+
+            % Apply options to FDB
             lists:foreach(
                 fun
                     (Name) when is_atom(Name) ->
                         ok = network_set_option(Name, <<>>);
                     ({Name, false}) when is_atom(Name) ->
-                        ok;
+                        erlang:error(badarg);
                     ({Name, true}) when is_atom(Name) ->
                         ok = network_set_option(Name, <<>>);
                     ({Name, Value}) when is_atom(Name) ->
                         ok = network_set_option(Name, Value)
                 end,
-                Opts2
+                Opts3
             ),
 
             ok = erlfdb_setup_network()
