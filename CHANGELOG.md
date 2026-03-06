@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.1.0 (2026-03-07)
+
+### Enhancements
+
+ * Compile-time configuration: `rebar.config.script` reworked to support `ERLFDB_COMPILE_API_VERSION`, `ERLFDB_INCLUDE_DIR`, and `ERLFDB_FDBCLI` env vars, with better fallback behavior when fdbcli isn't available
+ * Multiversion CI job: new GitHub Action that compiles erlfdb against FDB 7.2.2, runs a single fdbserver, upgrades to 7.3.62, and verifies the multi-version client connects to both
+
+### Documentation
+
+ * New `notes/configuration.md` covering all compile-time and runtime options
+
 ## v1.0.0 (2026-02-28)
 
 No changes.
