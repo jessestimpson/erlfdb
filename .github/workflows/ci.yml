@@ -76,6 +76,32 @@ jobs:
           pip3 show foundationdb
           ./test/bindingtester/loop.sh
         if: ${{ matrix.bindingtester }}
+  multiversion:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - otp: "27.0.1"
+            fdb_old: "7.2.2"
+            fdb_new: "7.3.62"
+    name: "linux / OTP ${{ matrix.otp }} / FDB ${{ matrix.fdb_old }} -> ${{ matrix.fdb_new }} (multiversion)"
+    env:
+      FDB_OLD: ${{ matrix.fdb_old }}
+      FDB_NEW: ${{ matrix.fdb_new }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{matrix.otp}}
+          rebar3-version: "3.24.0"
+      - name: Download FDB packages
+        run: |
+          wget https://github.com/apple/foundationdb/releases/download/${FDB_OLD}/foundationdb-clients_${FDB_OLD}-1_amd64.deb
+          wget https://github.com/apple/foundationdb/releases/download/${FDB_OLD}/foundationdb-server_${FDB_OLD}-1_amd64.deb
+          wget https://github.com/apple/foundationdb/releases/download/${FDB_NEW}/foundationdb-clients_${FDB_NEW}-1_amd64.deb
+          wget https://github.com/apple/foundationdb/releases/download/${FDB_NEW}/foundationdb-server_${FDB_NEW}-1_amd64.deb
+      - name: Run multiversion upgrade test
+        run: bash test/multiversion/run_upgrade_test.sh
   macos:
     runs-on: macos-latest
     strategy:
